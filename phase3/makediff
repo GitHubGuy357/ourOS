@@ -1,0 +1,77 @@
+#!/bin/bash
+
+# Author: James Rogers
+#   Date: 2017-09-16
+#   
+#   makediff compares two files with unix diff and outputs the results on screen
+#   while writing the overview to screen and disk, as well as raw diff files
+#   to disk. Each overview has the timestamp in the file name appended to filename.
+
+
+# Define a timestamp function
+function timestamp(){
+  echo `date +%Y-%m-%d_%H_%M_%S`
+}
+
+#overview output folder
+overview_file_folder="${PWD}/testOverview"  #empty leaves prefixed _ in PWD
+
+#output result files
+raw_file_result="${PWD}/test_result_raw.txt"
+overview_file_name=""
+overview_file_name="${overview_file_name}_$(timestamp).txt"
+overview_file_name="$overview_file_folder/$overview_file_name"
+
+#folders to compare
+input_folder_left="$(pwd)/testResults"
+input_folder_right="$(pwd)/test_results_ours"
+
+#expected file extensions
+ext=".txt"
+
+match=""
+match_count=0
+match_not=""
+match_not_count=0
+missing=""
+missing_count=0
+
+if [ ! -d "$input_folder_left" ]; then
+  echo "Test Input Folder Not Found"
+  exit
+fi
+
+mkdir -p $overview_file_folder
+
+echo -e "\nWriting testcase results to '$raw_file_result'"
+echo "Writing overview to '$overview_file_name'"
+for entry in "./testcases"/*
+do
+    filename=$(basename "$entry")
+    extension="${filename##*.}"
+    filename="${filename%.*}"
+    if [ -e "$input_folder_right/$filename$ext" ]; then
+        diff "$input_folder_left/$filename$ext" "$input_folder_right/$filename$ext" > "$raw_file_result"
+        if [ $? -eq 0 ];then
+            match="${match}  ${filename} ----MATCH----\n"
+            (( match_count++ ))
+        else
+            match_not="${match_not}  ${filename} ----NOT MATCH----\n"
+            (( match_not_count++ ))
+        fi
+    else
+        missing+="  $filename$ext\n"
+        (( missing_count++ ))
+    fi
+done
+
+output=""
+output="${output}\nMatchingCount: ${match_count}\n${match}"
+output="${output}\nMismatchCount: ${match_not_count}\n${match_not}"
+output="${output}\nMissingCount: ${missing_count}\n${missing}"
+printf "$output"
+printf "$output" > ${overview_file_name}
+#printf "\nMatching Count: $match_count\n$match"
+#printf "\nMismatch Count: $match_not_count\n$match_not"
+#printf "\nMissing Count: $missing_count\n$missing"
+#printf "$match$match_not" > ${overview_file_name}

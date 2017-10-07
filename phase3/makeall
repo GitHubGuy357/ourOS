@@ -1,0 +1,27 @@
+#!/bin/bash
+
+# Author: James Rogers
+#   Date: 2017-09-16
+#   
+#   makeall takes an input folder, specified by input_folder,and outputs the resulting
+#   testcase results into the output folder, specified by output_folder. Options to use
+#   th filename, extension, or full path are below 
+
+input_folder="$(pwd)/testcases"
+output_folder="$(pwd)/test_results_ours"
+mkdir -p $output_folder
+
+for entry in "${input_folder}"/*
+do
+    filename=$(basename "$entry")
+    extension="${filename##*.}"
+    filename="${filename%.*}"
+    #echo "Entry=$entry FileName=$filename Extension=$extension"
+    resultfile="$output_folder/$filename.txt"
+    echo -e "\nMaking...$filename"
+    make $filename
+    if [ -e "$filename" ]; then
+        ./$filename > $resultfile
+        echo "Writing run of $filename to $resultfile"
+    fi
+done
