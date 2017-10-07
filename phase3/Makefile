@@ -5,15 +5,15 @@ ASSIGNMENT = 452phase3
 CC = gcc
 AR = ar
 
-COBJS = phase3.o libuser.o
+COBJS = phase3.o libuser.o MinQueue.o
 CSRCS = ${COBJS:.o=.c}
 
 PHASE1LIB = patrickphase1
-PHASE2LIB = patrickphase2
+PHASE2LIB = our_phase2
 #PHASE1LIB = patrickphase1debug
 #PHASE2LIB = patrickphase2debug
 
-HDRS = sems.h
+HDRS = sems.h MinQueue.h
 
 INCLUDE = ${PREFIX}/include
 
@@ -51,3 +51,9 @@ phase3.o:	sems.h
 submit: $(CSRCS) $(HDRS) Makefile
 	tar cvzf phase3.tgz $(CSRCS) $(HDRS) Makefile
 
+all:
+	./makeall
+	./makediff
+
+diff:
+	./makediff
