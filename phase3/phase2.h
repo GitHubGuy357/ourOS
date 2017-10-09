@@ -4,6 +4,7 @@
 
 #ifndef _PHASE2_H
 #define _PHASE2_H
+#include "MinQueue.h"
 
 // Maximum line length. Used by terminal read and write.
 #define MAXLINE         80
@@ -32,6 +33,14 @@ extern int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_max_size);
 // type = interrupt device type, unit = # of device (when more than one),
 // status = where interrupt handler puts device's status register.
 extern int waitDevice(int type, int unit, int *status);
+
+extern void intializeInterruptHandler();
+
+extern void intializeSysCalls();
+
+void push(MinQueue *heap, int priority, struct mprocStruct* data);
+
+struct mprocStruct* pop(MinQueue *heap);
 
 //  The systemArgs structure
 typedef struct systemArgs
