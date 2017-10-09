@@ -18,7 +18,10 @@
         USLOSS_Halt(1);  \
     }  \
 }
-
+/* GLOBALS */
+	
+/* PROTOTYPES */
+	
 /*
  *  Routine:  Spawn
  *

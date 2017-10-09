@@ -9,7 +9,7 @@ COBJS = phase3.o libuser.o MinQueue.o
 CSRCS = ${COBJS:.o=.c}
 
 PHASE1LIB = patrickphase1
-PHASE2LIB = our_phase2_v5
+PHASE2LIB = patrickphase2
 #patrickphase2
 #PHASE1LIB = patrickphase1debug
 #PHASE2LIB = patrickphase2debug
