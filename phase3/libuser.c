@@ -28,8 +28,8 @@
  *  Description: This is the call entry to fork a new user process.
  *
  *  Arguments:    char *name    -- new process's name
- *                PFV func      -- pointer to the function to fork
- *                void *arg     -- argument to function
+ *                PFV startFunc      -- pointer to the startFunction to fork
+ *                void *arg     -- argument to startFunction
  *                int stacksize -- amount of stack to be allocated
  *                int priority  -- priority of forked process
  *                int  *pid     -- pointer to output value
@@ -38,21 +38,17 @@
  *  Return Value: 0 means success, -1 means error occurs
  *
  */
-int Spawn(char *name, int (*func)(char *), char *arg, int stack_size, 
-    int priority, int *pid)   
-{
+int Spawn(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority, int *pid){
     USLOSS_Sysargs sysArg;
-    
     CHECKMODE;
+	
     sysArg.number = SYS_SPAWN;
-    sysArg.arg1 = (void *) func;
+    sysArg.arg1 = (void *) startFunc;
     sysArg.arg2 = arg;
-    sysArg.arg3 = &stack_size; // & may be wrong (void *) was here
-    sysArg.arg4 = &priority; // & may be wrong (void *) was here
+    sysArg.arg3 = (void*)(long)stack_size; // & may be wrong (void *) was here
+    sysArg.arg4 = (void*)(long)priority; // & may be wrong (void *) was here
     sysArg.arg5 = name;
-
     USLOSS_Syscall(&sysArg);
-
     *pid = (long) sysArg.arg1;
     return (long) sysArg.arg4;
 } /* end of Spawn */
@@ -71,15 +67,12 @@ int Spawn(char *name, int (*func)(char *), char *arg, int stack_size,
  *  Return Value: 0 means success, -1 means error occurs
  *
  */
-int Wait(int *pid, int *status)
-{
+int Wait(int *pid, int *status){
     USLOSS_Sysargs sysArg;
-    
     CHECKMODE;
+	
     sysArg.number = SYS_WAIT;
-
     USLOSS_Syscall(&sysArg);
-
     *pid = (long) sysArg.arg1;
     *status = (long) sysArg.arg2;
     return (long) sysArg.arg4;
@@ -98,9 +91,13 @@ int Wait(int *pid, int *status)
  *  Return Value: 0 means success, -1 means error occurs
  *
  */
-void Terminate(int status)
-{
-    
+void Terminate(int status){
+    USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_TERMINATE;
+	sysArg.arg1 = (void*)(long)status;
+    USLOSS_Syscall(&sysArg);
 } /* end of Terminate */
 
 
@@ -112,10 +109,14 @@ void Terminate(int status)
  *  Arguments:
  *
  */
-int SemCreate(int value, int *semaphore)
-{
-    int something = 0;
-    return something;
+int SemCreate(int value, int *semaphore){
+    USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_SEMCREATE;
+	sysArg.arg1 = (void*)(long)value;
+    USLOSS_Syscall(&sysArg);
+	return (long)sysArg.arg4;
 } /* end of SemCreate */
 
 
@@ -127,10 +128,14 @@ int SemCreate(int value, int *semaphore)
  *  Arguments:
  *
  */
-int SemP(int semaphore)
-{
-    int something = 0;
-    return something;
+int SemP(int semaphore){
+    USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_SEMP;
+	sysArg.arg1 = (void*)(long)semaphore;
+    USLOSS_Syscall(&sysArg);
+	return (long)sysArg.arg4;
 } /* end of SemP */
 
 
@@ -142,10 +147,14 @@ int SemP(int semaphore)
  *  Arguments:
  *
  */
-int SemV(int semaphore)
-{
-    int something = 0;
-    return something;
+int SemV(int semaphore){
+    USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_SEMV;
+	sysArg.arg1 = (void*)(long)semaphore;
+    USLOSS_Syscall(&sysArg);
+	return (long)sysArg.arg4;
 } /* end of SemV */
 
 
@@ -157,10 +166,14 @@ int SemV(int semaphore)
  *  Arguments:
  *
  */
-int SemFree(int semaphore)
-{
-    int something = 0;
-    return something;
+int SemFree(int semaphore){
+    USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_SEMFREE;
+	sysArg.arg1 = (void*)(long)semaphore;
+    USLOSS_Syscall(&sysArg);
+	return (long)sysArg.arg4;
 } /* end of SemFree */
 
 
@@ -172,8 +185,13 @@ int SemFree(int semaphore)
  *  Arguments:
  *
  */
-void GetTimeofDay(int *tod)                           
-{
+void GetTimeofDay(int *tod)                           {
+	USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_GETTIMEOFDAY;
+	USLOSS_Syscall(&sysArg);
+	*tod = (long)sysArg.arg1;
 } /* end of GetTimeofDay */
 
 
@@ -185,8 +203,13 @@ void GetTimeofDay(int *tod)
  *  Arguments:
  *
  */
-void CPUTime(int *cpu)                           
-{
+void CPUTime(int *cpu)                           {
+	USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_CPUTIME;
+    USLOSS_Syscall(&sysArg);
+	*cpu = (long)sysArg.arg1;
 } /* end of CPUTime */
 
 
@@ -198,8 +221,13 @@ void CPUTime(int *cpu)
  *  Arguments:
  *
  */
-void GetPID(int *pid)                           
-{
+void GetPID(int *pid)                           {
+	USLOSS_Sysargs sysArg;
+    CHECKMODE;
+	
+    sysArg.number = SYS_GETPID;
+    USLOSS_Syscall(&sysArg);
+	*pid = (long)sysArg.arg1;
 } /* end of GetPID */
 
 /* end libuser.c */

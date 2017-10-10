@@ -14,10 +14,10 @@
 	int debugVal = 1;
 
 /* PROTOTYPES */
-	void terminateR(int pid, long returnStatus);
+	void terminateReal(int pid, long returnStatus);
 	int start2(char *);
 	extern int start3(char *);
-	int spawnReal(char *name, int (*func)(char *), char *arg, int stack_size, int priority);
+	int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority);
 	int waitReal(int *status);
 	void nullsys3(systemArgs *args); // Intialize after intializeSysCalls so all syscall vecs being pointing to nullsys3;
     void intializeSysCalls();
@@ -33,11 +33,12 @@
 	void getPID(systemArgs *args);
 	int pDebug(int level, char *fmt, ...);
 	void putUserMode();
-	void spawnLaunch();
+	int spawnLaunch();
 	int start2(char *arg){
 	pDebug(1,"start2()\n");
     int pid;
     int status;
+	extern void Terminate(int status);
 	
     /*
      * Check kernel mode here.
@@ -53,8 +54,8 @@
 		ProcTable[i].name[0] = '\0';
 		ProcTable[i].status = -1;
 		ProcTable[i].parentPid = -1;
-		ProcTable[i].mailBox = -1;
-		ProcTable[i].func = NULL;// Function pointer to start
+		ProcTable[i].mBox = -1;
+		ProcTable[i].startFunc = NULL;// startFunction pointer to start
 		ProcTable[i].arg = NULL;
 		ProcTable[i].returnStatus = -1;
 		ProcTable[i].childCount = 0;
@@ -66,15 +67,15 @@
      * These are lower-case because they are not system calls;
      * system calls cannot be invoked from kernel mode.
      * Assumes kernel-mode versions of the system calls
-     * with lower-case names.  I.e., Spawn is the user-mode function
-     * called by the test cases; spawn is the kernel-mode function that
-     * is called by the syscallHandler; spawnReal is the function that
+     * with lower-case names.  I.e., Spawn is the user-mode startFunction
+     * called by the test cases; spawn is the kernel-mode startFunction that
+     * is called by the syscallHandler; spawnReal is the startFunction that
      * contains the implementation and is called by spawn.
      *
      * Spawn() is in libuser.c.  It invokes USLOSS_Syscall()
-     * The system call handler calls a function named spawn() -- note lower
+     * The system call handler calls a startFunction named spawn() -- note lower
      * case -- that extracts the arguments from the sysargs pointer, and
-     * checks them for possible errors.  This function then calls spawnReal().
+     * checks them for possible errors.  This startFunction then calls spawnReal().
      *
      * Here, we only call spawnReal(), since we are already in kernel mode.
      *
@@ -83,7 +84,7 @@
      * and spawnLaunch() then coordinate the completion of the phase 3
      * process table entries needed for the new process.  spawnReal() will
      * return to the original caller of Spawn, while spawnLaunch() will
-     * begin executing the function passed to Spawn. spawnLaunch() will
+     * begin executing the startFunction passed to Spawn. spawnLaunch() will
      * need to switch to user-mode before allowing user code to execute.
      * spawnReal() will return to spawn(), which will put the return
      * values back into the sysargs pointer, switch to user-mode, and 
@@ -109,18 +110,18 @@
  *  Description: This is the call entry to fork a new user process.
  *
  *  Arguments:    char *name    -- new process's name
- *                PFV func      -- pointer to the function to fork
- *                void *arg     -- argument to function
+ *                PFV startFunc      -- pointer to the startFunction to fork
+ *                void *arg     -- argument to startFunction
  *                int stacksize -- amount of stack to be allocated
  *                int priority  -- priority of forked process
  *                (output value: process id of the forked process)
  *  Return Value: 0 means success, -1 means error occurs
  */
-int spawnReal(char *name, int (*func)(char *), char *arg, int stack_size, int priority){
+int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority){
 	pDebug(1,"spawnReal()\n");
 	
 	// Check if conditions are within range, than call fork1 to make new process.
-	int kidPid = fork1(name, func, arg, stack_size,priority);
+	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
     
     if (kidPid < 0) {
 		// If returned pid < 0 then there was an issue getting a pid from phase1 procTable.
@@ -134,32 +135,34 @@ int spawnReal(char *name, int (*func)(char *), char *arg, int stack_size, int pr
 	strcpy(ProcTable[kidPid%MAXPROC].name,name);
 	ProcTable[kidPid%MAXPROC].status = CHILD_ALIVE;
 	ProcTable[kidPid%MAXPROC].parentPid = getpid();
-	ProcTable[kidPid%MAXPROC].mailBox = MboxCreate(0,100);
-	ProcTable[kidPid%MAXPROC].func = func;// Function pointer to start
+	ProcTable[kidPid%MAXPROC].mBox = MboxCreate(0,100);
+	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
 	ProcTable[kidPid%MAXPROC].arg = arg;
 	ProcTable[kidPid%MAXPROC].returnStatus = -1;
 	ProcTable[kidPid%MAXPROC].childCount = 0;
 	intialize_queue2(&ProcTable[kidPid%MAXPROC].childQuitList);
 	
-	// Open up mailbox send to wait.
+	// Open up mBox send to wait.
 	int msg;
-	MboxSend(ProcTable[kidPid%MAXPROC].mailBox,&msg,sizeof(void*));
-	putUserMode();
+	MboxSend(ProcTable[kidPid%MAXPROC].mBox,&msg,sizeof(void*));
+	//putUserMode();
 	// Return pid of new process
 	return kidPid;
 }	
 
-void spawnLaunch(){
+int spawnLaunch(){
 	int msg;
 	pDebug(1,"spawnLaunch()\n");
 	
-// Enable Inturrupts Equivilent
-	MboxReceive(getpid()%MAXPROC,&msg,sizeof(void*));
+// block Equivilent
+	int mboxresult = MboxReceive(ProcTable[getpid()%MAXPROC].mBox,&msg,sizeof(void*));
 	
 // Switch to usermode to run user code.
 	putUserMode();
-	int result = ProcTable[getpid()%MAXPROC].func(ProcTable[getpid()%MAXPROC].arg);
-    pDebug(1,"spawnLaunch() result = %d\n",result);
+	int result = ProcTable[getpid()%MAXPROC].startFunc(ProcTable[getpid()%MAXPROC].arg);
+    pDebug(1,"spawnLaunch() result = %d mboxresult = %d\n",result,mboxresult);
+	//Terminate(getpid());
+	return result; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
 }
 /*
  *  Routine:  waitReal
@@ -174,8 +177,8 @@ void spawnLaunch(){
  */
 int waitReal(int *status){ // Like join, makes sure kid has not quit
 	pDebug(1,"waitReal()\n");
-	int joinDummy;
-	int pid = join(&joinDummy);
+	int joinVal;
+	int pid = join(&joinVal);
     *status = ProcTable[getpid()%MAXPROC].returnStatus;
     return pid;
     
@@ -183,11 +186,11 @@ int waitReal(int *status){ // Like join, makes sure kid has not quit
 
 /*
 Create a user-level process. Use fork1 to create the process, then change it to usermode.
-If the spawned function returns, it should have the same effect as calling terminate.
+If the spawned startFunction returns, it should have the same effect as calling terminate.
 Input
-arg1: address of the function to spawn.
-arg2: parameter passed to spawned function.
-    sysArg.arg1 = (void *) func;
+arg1: address of the startFunction to spawn.
+arg2: parameter passed to spawned startFunction.
+    sysArg.arg1 = (void *) startFunc;
     sysArg.arg2 = arg;
     sysArg.arg3 = &stack_size; // & may be wrong (void *) was here
     sysArg.arg4 = &priority; // & may be wrong (void *) was here
@@ -208,8 +211,8 @@ Output
 arg1: process id of the terminating child.
 arg2: the termination code of the child.
 */
-void wait (systemArgs *args){
-	
+void wait(systemArgs *args){
+	pDebug(1,"wait()\n");
 }
 
 /* Terminates the invoking process and all of its children, and synchronizes with its parent’s Wait
@@ -221,11 +224,18 @@ Input
 arg1: termination code for the process.
 */
 void terminate(systemArgs *args){
-	terminateR(getpid(),(long)args->arg1);
+	pDebug(1,"terminate()\n");
+	terminateReal(getpid(),(long)args->arg1);
+	
 }
 
-void terminateR(int pid,long returnStatus){
+void terminateReal(int pid,long returnStatus){
+	pDebug(1,"terminateReal()\n");
 	ProcTable[pid%MAXPROC].returnStatus = returnStatus;
+	
+	// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
+	// then zap next child, and so forth
+	//quit(pid); // Phase 1 must be notified process has quit.
 }
 
 /*Creates a user-level semaphore.
@@ -236,7 +246,7 @@ arg1: semaphore handle to be used in subsequent semaphore system calls.
 arg4: -1 if initial value is negative or no semaphores are available; 0 otherwise.
 */
 void semCreate(systemArgs *args){
-	
+	pDebug(1,"semCreate()\n");
 }
 
 
@@ -248,7 +258,7 @@ Output
 arg4: -1 if semaphore handle is invalid, 0 otherwise.
 */
 void semP(systemArgs *args){
-	
+	pDebug(1,"semP()\n");
 }
 
 
@@ -261,7 +271,7 @@ Output
 arg4: -1 if semaphore handle is invalid, 0 otherwise.
 */
 void semV(systemArgs *args){
-	
+	pDebug(1,"semV()\n");
 }
 
 /*
@@ -275,7 +285,7 @@ Any process waiting on a semaphore when it is freed should be terminated using t
 of the Terminate system call.
 */
 void semFree(systemArgs *args){
-	
+	pDebug(1,"semFree()\n");
 }
 
 /*
@@ -284,7 +294,7 @@ Output
 arg1: the time of day.
 */
 void getTimeofDay(systemArgs *args){
-	
+	pDebug(1,"getTimeofDay()\n");
 }
 
 /*
@@ -294,7 +304,7 @@ Output
 arg1: the CPU time used by the currently running process.
 */
 void cPUTime(systemArgs *args){
-	
+	pDebug(1,"cPUTime()\n");
 }
 
 /*
@@ -303,7 +313,7 @@ Output
 arg1: the process ID.
 */
 void getPID (systemArgs *args){
-	
+	pDebug(1,"getPID()\n");
 }
 
  /* ------------------------------------------------------------------------

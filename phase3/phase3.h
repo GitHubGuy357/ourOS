@@ -16,10 +16,10 @@ typedef struct procTable {
 	int status;
 	int childCount;
 	MinQueue childQuitList;
-	int mailBox;
-    int (*func)(char *);// Function pointer to start
+	int mBox;
+    int (*startFunc)(char *);// startFunction pointer to start
     char *arg;
     long returnStatus;
-} procTable;
+} procTable; 
 #endif /* _PHASE3_H */
 
