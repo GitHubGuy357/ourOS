@@ -152,6 +152,7 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 
 int spawnLaunch(){
 	int msg;
+	int launchPID = getpid()%MAXPROC; // DO NOT REMOVE - if getpid() called after purUserMode() halts USLOSS.
 	pDebug(1,"spawnLaunch()\n");
 	
 // block Equivilent
@@ -159,8 +160,9 @@ int spawnLaunch(){
 	
 // Switch to usermode to run user code.
 	putUserMode();
-	int result = ProcTable[getpid()%MAXPROC].startFunc(ProcTable[getpid()%MAXPROC].arg);
+	int result = ProcTable[launchPID].startFunc(ProcTable[launchPID].arg);
     pDebug(1,"spawnLaunch() result = %d mboxresult = %d\n",result,mboxresult);
+	//quit(0);
 	//Terminate(getpid());
 	return result; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
 }
@@ -334,7 +336,26 @@ void getPID (systemArgs *args){
 	sys_vec[SYS_SEMV] = semV;
 	sys_vec[SYS_SEMFREE] = semFree;
 
- } /* intializeSysCalls */
+ } 
+  /* intializeSysCalls */
+  /*
+  void intializeSysCalls(){
+    for (int i = 0; i < MAXSYSCALLS; i++) {
+        USLOSS_Sysargs[i] = nullsys3;
+    }
+	USLOSS_Sysargs[SYS_SPAWN] = spawn;
+	USLOSS_Sysargs[SYS_WAIT] = wait;
+	USLOSS_Sysargs[SYS_TERMINATE] = terminate;
+	USLOSS_Sysargs[SYS_GETTIMEOFDAY] = getTimeofDay;
+	USLOSS_Sysargs[SYS_CPUTIME] = cPUTime;
+	USLOSS_Sysargs[SYS_GETPID] = getPID;
+	USLOSS_Sysargs[SYS_SEMCREATE] = semCreate;
+	USLOSS_Sysargs[SYS_SEMP] = semP;
+	USLOSS_Sysargs[SYS_SEMV] = semV;
+	USLOSS_Sysargs[SYS_SEMFREE] = semFree;
+
+ }*/ /* intializeSysCalls */
+
  
 void nullsys3(systemArgs *args) {
     USLOSS_Console("nullsys(): Invalid syscall %d. Halting...\n", args->number);
