@@ -308,6 +308,7 @@ void semCreate(systemArgs *args){
 		args->arg1 = (void *)(long)semVal;
 		args->arg4 = (void*)(long)0;
 	}
+	putUserMode();
 //TODO: If zapped;
 }
 
@@ -321,6 +322,7 @@ int semCreateReal(int initialVal){
 			break;
 		}
 	}
+	putUserMode();
 	return returnVal;
 }
 
@@ -343,10 +345,11 @@ void semP(systemArgs *args){
 void semPReal(int semID){
 	int recieveResult;
 	pDebug(2,"semPReal()\n");
-	if(SemTable[semID].initialVal >0){
-		MboxReceive(SemTable[semID].mBoxID,&recieveResult,0);
+	if(SemTable[semID].initialVal >=0){
+		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
 		SemTable[semID].initialVal--;
 	}
+	putUserMode();
 }
 
 /*
@@ -369,7 +372,8 @@ void semVReal(int semID){
 	int sendResult;
 	pDebug(2,"semVReal()\n");
 	SemTable[semID].initialVal++;
-	MboxSend(SemTable[semID].mBoxID,&sendResult,0);
+	MboxReceive(SemTable[semID].mBoxID,&sendResult,0);
+	putUserMode();
 }
 /*
 Frees a semaphore.
@@ -383,6 +387,7 @@ of the Terminate system call.
 */
 void semFree(systemArgs *args){
 	pDebug(2,"semFree()\n");
+	putUserMode();
 }
 
 /*
@@ -392,6 +397,7 @@ arg1: the time of day.
 */
 void getTimeofDay(systemArgs *args){
 	pDebug(2,"getTimeofDay()\n");
+	putUserMode();
 }
 
 /*
@@ -402,6 +408,7 @@ arg1: the CPU time used by the currently running process.
 */
 void cPUTime(systemArgs *args){
 	pDebug(2,"cPUTime()\n");
+	putUserMode();
 }
 
 /*
@@ -411,6 +418,8 @@ arg1: the process ID.
 */
 void getPID (systemArgs *args){
 	pDebug(2,"getPID()\n");
+	args->arg1 = (void*)(long)getpid(); //TODO: This should not work because we must not be in user mode as we just did a system call...UNLESS USLOSS magic is performed...like always...
+	putUserMode();
 }
 
  /* ------------------------------------------------------------------------
