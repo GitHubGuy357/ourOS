@@ -21,7 +21,7 @@
 /* GLOBALS */
 	extern void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
 /* PROTOTYPES */
-	
+	extern int pDebug(int level, char *fmt, ...);
 /*
  *  Routine:  Spawn
  *
@@ -40,16 +40,17 @@
  */
 int Spawn(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority, int *pid){
     systemArgs sysArg;
-    
+    pDebug(3,"Spawn() - BEGIN: startFunc[%p]\n",startFunc);
     CHECKMODE;
     sysArg.number = SYS_SPAWN;
-    sysArg.arg1 = (void *) startFunc;
+    sysArg.arg1 = startFunc;
     sysArg.arg2 = arg;
     sysArg.arg3 = (void *)(long) stack_size;
     sysArg.arg4 = (void *)(long) priority;
     sysArg.arg5 = (void *) name;
     USLOSS_Syscall((void *) &sysArg);
     *pid = (long) sysArg.arg1;
+	pDebug(3,"Spawn() - END: startFunc[%p] pid[%d]\n",startFunc, *pid);
     return (long) sysArg.arg4;
 } /* end of Spawn */
 
@@ -92,6 +93,7 @@ int Wait(int *pid, int *status){
  *
  */
 void Terminate(int status){
+	pDebug(1,"Terminate(): Status[%d]\n",status);
     USLOSS_Sysargs sysArg;
     
     CHECKMODE;
@@ -131,6 +133,7 @@ int SemCreate(int value, int *semaphore){
  *
  */
 int SemP(int semaphore){
+		pDebug(3,"SemP(): semaphore[%d]\n",semaphore);
     USLOSS_Sysargs sysArg;
 
     CHECKMODE;

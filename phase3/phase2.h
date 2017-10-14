@@ -34,14 +34,6 @@ extern int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_max_size);
 // status = where interrupt handler puts device's status register.
 extern int waitDevice(int type, int unit, int *status);
 
-extern void intializeInterruptHandler();
-
-extern void intializeSysCalls();
-
-void push(MinQueue *heap, int priority, struct mprocStruct* data);
-
-struct mprocStruct* pop(MinQueue *heap);
-
 //  The systemArgs structure
 typedef struct systemArgs
 {

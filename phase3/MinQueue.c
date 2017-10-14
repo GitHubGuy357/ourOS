@@ -1,12 +1,14 @@
 // Author: James Rogers (jarogers1)
-// Date: 2017-10-02
+// Date: 2017-10-10
 // File: MinQueue.c
 // CSC452 - OS
 
+
 #include "MinQueue.h"
-#include "message.h"
+#include "phase2.h"
+#include "phase3.h"
 // Peek
-struct mprocStruct* peek(MinQueue head) {
+struct procTable* peek(MinQueue head) {
 	return head.topPtr->data;
 }
 
@@ -18,7 +20,7 @@ int remove_data(MinQueue *heap, int val_to_remove) {
 	Node *current = heap->topPtr;
 	Node *previous = NULL;
 
-	while (current != NULL && current->data->mboxID == val_to_remove) { //((mprocStruct*)current->data)->mboxID
+	while (current != NULL && current->data->pid == val_to_remove) { //((procTable*)current->data)->mboxID
 		previous = current;
 		current = current->next;
 	}
@@ -39,12 +41,12 @@ int remove_data(MinQueue *heap, int val_to_remove) {
 /****************************************************************************
  * print_queue - Prints the queue to stdio
  ****************************************************************************/
-void print(MinQueue * q) {
-	printf("List Output\n");
+void printQ(MinQueue q) {
+	printf("Process List:\n");
 	// WHY DOES THIS POINTER PRINTING DOES NOT WORK??? FIRST ELEMENT SHOWS IN DATA CORRECTLY, NEVER PRINTS, PRINTS 1 LESS ELEMENT AND THATS IT
-	Node *tmp = q->topPtr;
+	Node *tmp = q.topPtr;
 	while (tmp != NULL) {
-		printf("Pid:[%d], Data:[%p]\n", tmp->data->pid, tmp->data);
+		printf(" Pid:[%d], Name:[%s] Status:[%d]\n", tmp->data->pid, tmp->data->name, tmp->data->status);
 		tmp = tmp->next;
 	}
 }
@@ -53,10 +55,10 @@ void print(MinQueue * q) {
  * push - Pushes a value to the priority queue. If priority matches, it is added
  * to the end of that priority list.
  * INPUT: A min-heap.
- * OUTPUT: Returns the data held by priority, can be modified from struct mprocStruct* to function for ready list.
+ * OUTPUT: Returns the data held by priority, can be modified from struct procTable* to function for ready list.
  * SIDEEFFECTS: Alters the incoming heap.
  ****************************************************************************/
-void push(MinQueue *heap, int priority, struct mprocStruct* data) {
+void push(MinQueue *heap, int priority, struct procTable* data) {
 	if (heap->count != heap->size) {
 		/* Build temp node */
 		Node *tempPtr = &heap->nodes[heap->count];
@@ -95,11 +97,11 @@ void push(MinQueue *heap, int priority, struct mprocStruct* data) {
 /****************************************************************************
  * push - Takes the min value node off the top of queue.
  * INPUT: A min-heap.
- * OUTPUT: Returns the data held by priority, can be modified from struct mprocStruct* to function for ready list.
+ * OUTPUT: Returns the data held by priority, can be modified from struct procTable* to function for ready list.
  * SIDEEFFECTS: Alters the incoming heap.
  ****************************************************************************/
-struct mprocStruct* pop(MinQueue *heap) {
-	struct mprocStruct* returnData = NULL;
+struct procTable* pop(MinQueue *heap) {
+	struct procTable* returnData = NULL;
 	if (heap->count > 0) {
 		Node *returnNode = heap->topPtr;
 		returnData = returnNode->data;
@@ -162,7 +164,7 @@ int main() {
 //		random = rand() % mHeap.size + 1;
 //		printf("i=[%d] random=[%d]\n", i, random);
 //		int priority = random;
-//		struct mprocStruct* data = malloc(5);
+//		struct procTable* data = malloc(5);
 //		sprintf(data, "%d", priority);
 //		push(&mHeap, priority, data);
 //	}
@@ -170,7 +172,7 @@ int main() {
 // Pop the list
 	printf("\nPOPPING\n");
 	while (mHeap.count > 0) {
-		struct mprocStruct* value = pop(&mHeap);
+		struct procTable* value = pop(&mHeap);
 		printf("%s\n", value);
 		i++;
 	}

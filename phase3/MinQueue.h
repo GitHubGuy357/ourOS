@@ -3,12 +3,13 @@
 #define MAXSIZE 100
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 //The node
 typedef struct Node {
 	long long priority;
 	struct Node * next;
-	struct mprocStruct * data;
+	struct procTable * data;
 } Node;
 
 //The heap
@@ -20,11 +21,11 @@ typedef struct Node {
 } MinQueue;
 
 //Prototypes
-struct mprocStruct* peek(MinQueue head);
+struct procTable* peek(MinQueue head);
 int remove_data(MinQueue *heap, int val_to_remove);
-void print(MinQueue * q);
-void push(MinQueue *heap, int priority, struct mprocStruct* data);
-struct mprocStruct* pop(MinQueue *heap);
+void printQ(MinQueue q);
+void push(MinQueue *heap, int priority, struct procTable* data);
+struct procTable* pop(MinQueue *heap);
 void intialize_queue2(MinQueue *heap);
 
 #else

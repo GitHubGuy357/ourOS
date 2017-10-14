@@ -51,3 +51,9 @@ phase3.o:	sems.h
 submit: $(CSRCS) $(HDRS) Makefile
 	tar cvzf phase3.tgz $(CSRCS) $(HDRS) Makefile
 
+all:
+	./makeall
+	./makediff
+
+diff:
+	./makediff

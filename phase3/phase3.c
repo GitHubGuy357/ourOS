@@ -6,14 +6,18 @@
 #include <stdio.h>
 #include "message.h"
 #include <string.h> //For memcpy
+#include "sems.h"
 
 /* GLOBALS */
 	procTable ProcTable[MAXPROC];
-	void (*sys_vec[MAXSYSCALLS])(systemArgs *args);
+	semTable SemTable[MAXSEMS];
+	void (*systemCallVec[MAXSYSCALLS])(systemArgs *args);
 	int i;
-	int debugVal = 1;
+	int debugVal = 0; // Level of debug info: 1)Most 2)Mediulm 3)Least 0)off
 
 /* PROTOTYPES */
+	void dp3();
+	extern void Terminate(int status);
 	void terminateReal(int pid, long returnStatus);
 	int start2(char *);
 	extern int start3(char *);
@@ -22,23 +26,25 @@
 	void nullsys3(systemArgs *args); // Intialize after intializeSysCalls so all syscall vecs being pointing to nullsys3;
     void intializeSysCalls();
 	void spawn(systemArgs *args);
-	void wait(systemArgs *args);
+	void waitNotLinux(systemArgs *args);
 	void terminate (systemArgs *args);
 	void semCreate(systemArgs *args);
+	int semCreateReal(int initalVal);
 	void semP(systemArgs *args);
+	void semPReal(int handle);
 	void semV(systemArgs *args);
+	void semVReal(int handle);
 	void semFree(systemArgs *args);
 	void getTimeofDay(systemArgs *args);
 	void cPUTime(systemArgs *args);
 	void getPID(systemArgs *args);
 	int pDebug(int level, char *fmt, ...);
 	void putUserMode();
-	int spawnLaunch();
+	int spawnLaunch(char* func);
 	int start2(char *arg){
-	pDebug(1,"start2()\n");
+	pDebug(2,"start2()\n");
     int pid;
     int status;
-	extern void Terminate(int status);
 	
     /*
      * Check kernel mode here.
@@ -51,10 +57,11 @@
      */
 	for (i=0;i<MAXPROC;i++){
 		ProcTable[i].pid = -1;
+		ProcTable[i].parentPID = -1;
+		ProcTable[i].priority = -1;
 		ProcTable[i].name[0] = '\0';
 		ProcTable[i].status = -1;
-		ProcTable[i].parentPid = -1;
-		ProcTable[i].mBox = -1;
+		ProcTable[i].mBoxID = -1;
 		ProcTable[i].startFunc = NULL;// startFunction pointer to start
 		ProcTable[i].arg = NULL;
 		ProcTable[i].returnStatus = -1;
@@ -62,8 +69,13 @@
 		intialize_queue2(&ProcTable[i].childQuitList);
 	}
 
+	for (i=0;i<MAXSEMS;i++){
+		SemTable[i].initialVal = -1;
+		SemTable[i].mBoxID = -1;
+	}
+	
     /*
-     * Create first user-level process and wait for it to finish.
+     * Create first user-level process and waitNotLinux for it to finish.
      * These are lower-case because they are not system calls;
      * system calls cannot be invoked from kernel mode.
      * Assumes kernel-mode versions of the system calls
@@ -93,7 +105,7 @@
 	intializeSysCalls();
     pid = spawnReal("start3", start3, NULL, USLOSS_MIN_STACK, 3);
 
-    /* Call the waitReal version of your wait code here.
+    /* Call the waitReal version of your waitNotLinux code here.
      * You call waitReal (rather than Wait) because start2 is running
      * in kernel (not user) mode.
      */
@@ -104,87 +116,32 @@
 } /* start2 */
 
 
-
-/*
- *  Routine:  spawnReal - Kenal Mode
- *  Description: This is the call entry to fork a new user process.
- *
- *  Arguments:    char *name    -- new process's name
- *                PFV startFunc      -- pointer to the startFunction to fork
- *                void *arg     -- argument to startFunction
- *                int stacksize -- amount of stack to be allocated
- *                int priority  -- priority of forked process
- *                (output value: process id of the forked process)
- *  Return Value: 0 means success, -1 means error occurs
- */
-int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority){
-	pDebug(1,"spawnReal()\n");
-	
-	// Check if conditions are within range, than call fork1 to make new process.
-	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
-    
-    if (kidPid < 0) {
-		// If returned pid < 0 then there was an issue getting a pid from phase1 procTable.
-       USLOSS_Console("startup(): fork1 returned error, ");
-       USLOSS_Console("halting...\n");
-       USLOSS_Halt(1);
-    }
-	
-	// Add new process to ProcTable
-	ProcTable[kidPid%MAXPROC].pid = kidPid;
-	strcpy(ProcTable[kidPid%MAXPROC].name,name);
-	ProcTable[kidPid%MAXPROC].status = CHILD_ALIVE;
-	ProcTable[kidPid%MAXPROC].parentPid = getpid();
-	ProcTable[kidPid%MAXPROC].mBox = MboxCreate(0,100);
-	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
-	ProcTable[kidPid%MAXPROC].arg = arg;
-	ProcTable[kidPid%MAXPROC].returnStatus = -1;
-	ProcTable[kidPid%MAXPROC].childCount = 0;
-	intialize_queue2(&ProcTable[kidPid%MAXPROC].childQuitList);
-	
-	// Open up mBox send to wait.
+int spawnLaunch(char * func){ // Analougous to Phase 1 launch()
 	int msg;
-	MboxSend(ProcTable[kidPid%MAXPROC].mBox,&msg,sizeof(void*));
-	//putUserMode();
-	// Return pid of new process
-	return kidPid;
-}	
-
-int spawnLaunch(){
-	int msg;
+	int mBoxresult;
 	int launchPID = getpid()%MAXPROC; // DO NOT REMOVE - if getpid() called after purUserMode() halts USLOSS.
-	pDebug(1,"spawnLaunch()\n");
+	pDebug(2,"spawnLaunch() - START: startFunc = [%p]\n",func);
 	
-// block Equivilent
-	int mboxresult = MboxReceive(ProcTable[getpid()%MAXPROC].mBox,&msg,sizeof(void*));
+// unblock Equivilent
+	if(ProcTable[launchPID].mBoxID == -1){
+		ProcTable[launchPID].mBoxID = MboxCreate(0,100);
+		pDebug(2,"spawnLaunch() - MailBox is NULL\n");
+	}else{
+		pDebug(2,"spawnLaunch() - MailBox is %d\n",ProcTable[getpid()%MAXPROC].mBoxID);
+	}
+	mBoxresult = MboxReceive(ProcTable[getpid()%MAXPROC].mBoxID,&msg,sizeof(void*));
 	
 // Switch to usermode to run user code.
 	putUserMode();
+	
+// launch process
+	pDebug(1,"\nspawnLaunch(): Launching_PID = [%d] launchName = [%s] launchFunc = [%p]\n",launchPID,ProcTable[launchPID].name,ProcTable[launchPID].startFunc);
 	int result = ProcTable[launchPID].startFunc(ProcTable[launchPID].arg);
-    pDebug(1,"spawnLaunch() result = %d mboxresult = %d\n",result,mboxresult);
-	//quit(0);
-	//Terminate(getpid());
+    pDebug(2,"spawnLaunch() - END: result = %d mBoxIDresult = %d\n",result,mBoxresult);
+	//quit(result);
+	Terminate(launchPID);
 	return result; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
 }
-/*
- *  Routine:  waitReal
- *
- *  Description: This is the call entry to wait for a child completion
- *
- *  Arguments:    int *status -- pointer to output value 2
- *                (output value 2: status of the completing child)
- *
- *  Return Value: 0 means success, -1 means error occurs
- *
- */
-int waitReal(int *status){ // Like join, makes sure kid has not quit
-	pDebug(1,"waitReal()\n");
-	int joinVal;
-	int pid = join(&joinVal);
-    *status = ProcTable[getpid()%MAXPROC].returnStatus;
-    return pid;
-    
-} /* end of Wait */
 
 /*
 Create a user-level process. Use fork1 to create the process, then change it to usermode.
@@ -199,13 +156,75 @@ arg2: parameter passed to spawned startFunction.
     sysArg.arg5 = name;
 */
 void spawn(systemArgs *args){
-	pDebug(1,"spawn()\n");
-	int result = spawnReal(args->arg5,args->arg1,args->arg2,(long)args->arg3,(long)args->arg4);
-	args->arg1 = &result;
+	pDebug(2,"spawn(): BEGIN\n");
+	pDebug(2,"spawn(): getpid[%d] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),args->arg1,args->arg2,(long)args->arg3,(long)args->arg4,args->arg5);
+	int pid = spawnReal(args->arg5,args->arg1,args->arg2,(long)args->arg3,(long)args->arg4);
+	pDebug(2,"spawn(): pid[%d]\n",pid);
+	args->arg1 = (void*)(long)pid;
 	
 	// Put OS back in usermode
 	putUserMode();
+	pDebug(2,"spawn(): END\n");
 }
+
+/*
+ *  Routine:  spawnReal - Kenal Mode
+ *  Description: This is the call entry to fork a new user process.
+ *
+ *  Arguments:    char *name    -- new process's name
+ *                PFV startFunc      -- pointer to the startFunction to fork
+ *                void *arg     -- argument to startFunction
+ *                int stacksize -- amount of stack to be allocated
+ *                int priority  -- priority of forked process
+ *                (output value: process id of the forked process)
+ *  Return Value: 0 means success, -1 means error occurs
+ */
+int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority){
+// TODO: Check if conditions are within range, than call fork1 to make new process.
+	pDebug(2,"spawnReal() - START Before fork1():\n");
+	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
+    pDebug(2,"spawnReal() - After fork1(): CurrentPID[%d] kidpid[%d] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),kidPid,startFunc,arg,stack_size,priority,name);
+    if (kidPid < 0) {
+	// If returned pid < 0 then there was an issue getting a pid from phase1 procTable.
+       USLOSS_Console("startup(): fork1 returned error, ");
+       USLOSS_Console("halting...\n");
+       USLOSS_Halt(1);
+    }
+	
+// Add new process to ProcTable
+	ProcTable[kidPid%MAXPROC].pid = kidPid;
+	strcpy(ProcTable[kidPid%MAXPROC].name,name);
+	ProcTable[kidPid%MAXPROC].status = CHILD_ALIVE;
+	ProcTable[kidPid%MAXPROC].parentPID = getpid();
+	ProcTable[kidPid%MAXPROC].priority = priority;
+	if(ProcTable[kidPid%MAXPROC].mBoxID == -1){
+		pDebug(2,"spawnReal() - MailBox is NULL\n");
+		ProcTable[kidPid%MAXPROC].mBoxID = MboxCreate(0,100);
+	}else{
+		pDebug(2,"spawnReal() - MailBox is %d\n",ProcTable[kidPid%MAXPROC].mBoxID);
+	}
+	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
+	ProcTable[kidPid%MAXPROC].arg = arg;
+	ProcTable[kidPid%MAXPROC].returnStatus = -1;
+	intialize_queue2(&ProcTable[kidPid%MAXPROC].childQuitList);
+	
+// Add to child count like fork1()
+	ProcTable[getpid()%MAXPROC].childCount++;
+	
+// Print Process Table
+	// dp3();
+	
+// Open up mBoxsend to waitNotLinux.
+	int msg;
+	MboxSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
+	
+// Put back into user mode
+	// putUserMode();
+	
+// Return pid of new process
+	pDebug(2,"spawnReal() - END\n");
+	return kidPid;
+}	
 
 /*
 Wait for a child process to terminate.
@@ -213,9 +232,35 @@ Output
 arg1: process id of the terminating child.
 arg2: the termination code of the child.
 */
-void wait(systemArgs *args){
-	pDebug(1,"wait()\n");
+void waitNotLinux(systemArgs *args){
+	pDebug(2,"waitNotLinux()\n");
+	int status;
+	int pid = waitReal(&status);
+	args->arg1 = (void*)(long)pid;
+	args->arg2 = (void*)(long)status;
+	//putUserMode();
 }
+
+/*
+ *  Routine:  waitReal
+ *
+ *  Description: This is the call entry to waitNotLinux for a child completion
+ *
+ *  Arguments:    int *status -- pointer to output value 2
+ *                (output value 2: status of the completing child)
+ *
+ *  Return Value: 0 means success, -1 means error occurs
+ *
+ */
+int waitReal(int *status){ // Like join, makes sure kid has not quit
+	pDebug(2,"waitReal(): Begin\n");
+	int joinVal;
+	int pid = join(&joinVal);
+    *status = ProcTable[pid%MAXPROC].returnStatus;
+	pDebug(2,"waitReal(): End - CurrentPID[%d] joinPID[%d] joinVal[%d]\n",getpid(),pid,joinVal);
+	//putUserMode();
+    return pid;
+} /* end of Wait */
 
 /* Terminates the invoking process and all of its children, and synchronizes with its parent’s Wait
 system call. Processes are terminated by zap’ing them.
@@ -226,18 +271,25 @@ Input
 arg1: termination code for the process.
 */
 void terminate(systemArgs *args){
-	pDebug(1,"terminate()\n");
+	pDebug(2,"terminate()\n");
 	terminateReal(getpid(),(long)args->arg1);
-	
 }
 
 void terminateReal(int pid,long returnStatus){
-	pDebug(1,"terminateReal()\n");
+	if(ProcTable[pid%MAXPROC].childQuitList.count >0){
+		pDebug(1,"terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
+		if(debugVal>0)
+			printQ(ProcTable[pid%MAXPROC].childQuitList);
+		procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childQuitList);
+		// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
+		// then zap next child, and so forth
+		//zap(tempChild->pid);
+	}else
+		pDebug(1,"terminateReal(): pid[%d] has 0 children\n",pid);
 	ProcTable[pid%MAXPROC].returnStatus = returnStatus;
-	
-	// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
-	// then zap next child, and so forth
-	//quit(pid); // Phase 1 must be notified process has quit.
+	push(&ProcTable[ProcTable[pid%MAXPROC].parentPID%MAXPROC].childQuitList,(long long)time(NULL),&ProcTable[pid%MAXPROC]);
+	pDebug(2,"terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
+	quit(pid); // Phase 1 must be notified process has quit.
 }
 
 /*Creates a user-level semaphore.
@@ -248,9 +300,29 @@ arg1: semaphore handle to be used in subsequent semaphore system calls.
 arg4: -1 if initial value is negative or no semaphores are available; 0 otherwise.
 */
 void semCreate(systemArgs *args){
-	pDebug(1,"semCreate()\n");
+	pDebug(2,"semCreate()\n");
+    int semVal = semCreateReal((long)args->arg1);
+	if(semVal == -1 || (long)args->arg1 <0)
+		args->arg4 = (void*)(long)-1;
+	else{
+		args->arg1 = (void *)(long)semVal;
+		args->arg4 = (void*)(long)0;
+	}
+//TODO: If zapped;
 }
 
+int semCreateReal(int initialVal){
+	int returnVal = -1;
+	for(i=0;i<MAXSEMS;i++){
+		if(SemTable[i].mBoxID == -1){
+			SemTable[i].initialVal = initialVal;
+			SemTable[i].mBoxID = MboxCreate(initialVal,0);
+			returnVal = i;
+			break;
+		}
+	}
+	return returnVal;
+}
 
 /*
 Performs a “P” operation on a semaphore.
@@ -260,10 +332,22 @@ Output
 arg4: -1 if semaphore handle is invalid, 0 otherwise.
 */
 void semP(systemArgs *args){
-	pDebug(1,"semP()\n");
+	pDebug(2,"semP()\n");
+	if(SemTable[(long)args->arg1].mBoxID != -1){
+		semPReal((long)args->arg1);
+		args->arg4 = (void*)(long)0;
+	}else
+		args->arg4 = (void*)(long)-1;
 }
 
-
+void semPReal(int semID){
+	int recieveResult;
+	pDebug(2,"semPReal()\n");
+	if(SemTable[semID].initialVal >0){
+		MboxReceive(SemTable[semID].mBoxID,&recieveResult,0);
+		SemTable[semID].initialVal--;
+	}
+}
 
 /*
 Performs a “V” operation on a semaphore.
@@ -273,9 +357,20 @@ Output
 arg4: -1 if semaphore handle is invalid, 0 otherwise.
 */
 void semV(systemArgs *args){
-	pDebug(1,"semV()\n");
+	pDebug(2,"semP()\n");
+	if(SemTable[(long)args->arg1].mBoxID != -1){
+		semVReal((long)args->arg1);
+		args->arg4 = (void*)(long)0;
+	}else
+		args->arg4 = (void*)(long)-1;
 }
 
+void semVReal(int semID){
+	int sendResult;
+	pDebug(2,"semVReal()\n");
+	SemTable[semID].initialVal++;
+	MboxSend(SemTable[semID].mBoxID,&sendResult,0);
+}
 /*
 Frees a semaphore.
 Input
@@ -287,7 +382,7 @@ Any process waiting on a semaphore when it is freed should be terminated using t
 of the Terminate system call.
 */
 void semFree(systemArgs *args){
-	pDebug(1,"semFree()\n");
+	pDebug(2,"semFree()\n");
 }
 
 /*
@@ -296,7 +391,7 @@ Output
 arg1: the time of day.
 */
 void getTimeofDay(systemArgs *args){
-	pDebug(1,"getTimeofDay()\n");
+	pDebug(2,"getTimeofDay()\n");
 }
 
 /*
@@ -306,7 +401,7 @@ Output
 arg1: the CPU time used by the currently running process.
 */
 void cPUTime(systemArgs *args){
-	pDebug(1,"cPUTime()\n");
+	pDebug(2,"cPUTime()\n");
 }
 
 /*
@@ -315,26 +410,26 @@ Output
 arg1: the process ID.
 */
 void getPID (systemArgs *args){
-	pDebug(1,"getPID()\n");
+	pDebug(2,"getPID()\n");
 }
 
  /* ------------------------------------------------------------------------
-    Initialize sys_vec calls
+    Initialize systemCallVec calls
    ------------------------------------------------------------------------*/
  void intializeSysCalls(){
     for (int i = 0; i < MAXSYSCALLS; i++) {
-        sys_vec[i] = nullsys3;
+        systemCallVec[i] = nullsys3;
     }
-	sys_vec[SYS_SPAWN] = spawn;
-	sys_vec[SYS_WAIT] = wait;
-	sys_vec[SYS_TERMINATE] = terminate;
-	sys_vec[SYS_GETTIMEOFDAY] = getTimeofDay;
-	sys_vec[SYS_CPUTIME] = cPUTime;
-	sys_vec[SYS_GETPID] = getPID;
-	sys_vec[SYS_SEMCREATE] = semCreate;
-	sys_vec[SYS_SEMP] = semP;
-	sys_vec[SYS_SEMV] = semV;
-	sys_vec[SYS_SEMFREE] = semFree;
+	systemCallVec[SYS_SPAWN] = spawn;
+	systemCallVec[SYS_WAIT] = waitNotLinux;
+	systemCallVec[SYS_TERMINATE] = terminate;
+	systemCallVec[SYS_GETTIMEOFDAY] = getTimeofDay;
+	systemCallVec[SYS_CPUTIME] = cPUTime;
+	systemCallVec[SYS_GETPID] = getPID;
+	systemCallVec[SYS_SEMCREATE] = semCreate;
+	systemCallVec[SYS_SEMP] = semP;
+	systemCallVec[SYS_SEMV] = semV;
+	systemCallVec[SYS_SEMFREE] = semFree;
 
  } 
   /* intializeSysCalls */
@@ -344,7 +439,7 @@ void getPID (systemArgs *args){
         USLOSS_Sysargs[i] = nullsys3;
     }
 	USLOSS_Sysargs[SYS_SPAWN] = spawn;
-	USLOSS_Sysargs[SYS_WAIT] = wait;
+	USLOSS_Sysargs[SYS_WAIT] = waitNotLinux;
 	USLOSS_Sysargs[SYS_TERMINATE] = terminate;
 	USLOSS_Sysargs[SYS_GETTIMEOFDAY] = getTimeofDay;
 	USLOSS_Sysargs[SYS_CPUTIME] = cPUTime;
@@ -358,7 +453,7 @@ void getPID (systemArgs *args){
 
  
 void nullsys3(systemArgs *args) {
-    USLOSS_Console("nullsys(): Invalid syscall %d. Halting...\n", args->number);
+    USLOSS_Console("nullsys3(): Invalid syscall %d. Halting...\n", args->number);
 	//Terminate instead of USLOSS_Halt(1);
 	terminate(args);
 } /* nullsys3 */
@@ -376,5 +471,19 @@ int pDebug(int level, char *fmt, ...) {
 
 void putUserMode(){
 	int result = USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
-	pDebug(1,"putUserMode(): Result = %d\n",result);
+	pDebug(2,"putUserMode(): Result = %d\n",result);
+}
+
+void dp3(){
+    USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
+    USLOSS_Console(" PID  ParentPID Priority  Status  #kids  Name        mBoxID\n");
+    USLOSS_Console("------------------------------------------------------------\n");
+		for( i= 0; i< MAXPROC;i++){
+			if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
+				USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-3s[%-2d] %-2s[%s] %-3s[%-2d]\n"
+						,"",ProcTable[i].pid,"", ProcTable[i].parentPID,"",ProcTable[i].priority,"",
+						ProcTable[i].status,"",ProcTable[i].childCount,"",ProcTable[i].name,"",ProcTable[i].mBoxID);
+			}	  
+		}
+    USLOSS_Console("------------------------------------------------------------\n");    
 }
