@@ -9,6 +9,7 @@ typedef struct semTable {
     int initialVal;
 	int currentVal;
 	int mBoxID;
+	int mutexID;
 	int processPID;
 	MinQueue blockList;
 } semTable;

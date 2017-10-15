@@ -76,6 +76,7 @@
 		SemTable[i].initialVal = -1;
 		SemTable[i].currentVal = -1;
 		SemTable[i].mBoxID = -1;
+		SemTable[i].mutexID = -1;
 		SemTable[i].processPID = -1;
 		intialize_queue2(&SemTable[i].blockList);
 	}
@@ -342,6 +343,7 @@ int semCreateReal(int initialVal){
 			SemTable[i].currentVal = 0;
 			SemTable[i].processPID = getpid()%MAXPROC;
 			SemTable[i].mBoxID = MboxCreate(initialVal,0);
+			SemTable[i].mutexID = MboxCreate(0,0);
 			returnVal = i;
 			break;
 		}
@@ -368,23 +370,34 @@ void semP(systemArgs *args){
 
 void semPReal(int semID){
 	int recieveResult;
+	
+	//get mutex
+//	MboxSend(SemTable[semID].mutexID,&recieveResult,0);
+	
 	pDebug(2,"semPReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal >=0){
-		
 		// If we are going to block on this send, update process status to blocked for semFree()
 		if(SemTable[semID].currentVal == SemTable[semID].initialVal){
 			push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
 			ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
 		}else
 			SemTable[semID].currentVal--;
-	if(debugVal>0){
-		ds3();
-		dp3();
-	}
-		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);	
-	}
+		if(debugVal>0){
+			ds3();
+			dp3();
+		}
+			MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
+			if(SemTable[semID].mBoxID == -1){
+				terminateReal(getpid()%MAXPROC,-111);
+				pDebug(1,"semPReal(): After MboxSend(SemTable[semID].mBoxID,&recieveResult,0);\n\n\n\n");
+			}
+		}
+		
 	putUserMode();
+	
+	//release mutex
+	//MboxReceive(SemTable[semID].mutexID,&recieveResult,0);
 }
 
 /*
@@ -405,6 +418,10 @@ void semV(systemArgs *args){
 
 void semVReal(int semID){
 	int sendResult;
+		
+	//get mutex
+//	MboxSend(SemTable[semID].mutexID,&sendResult,0);
+	
 	pDebug(2,"semVReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal <= SemTable[semID].initialVal){
@@ -419,7 +436,11 @@ void semVReal(int semID){
 		dp3();
 	}
 	MboxReceive(SemTable[semID].mBoxID,&sendResult,0);
+	pDebug(1,"semVReal(): After MboxReceive(SemTable[semID].mBoxID,&sendResult,0);");
 	putUserMode();
+	
+	//release mutex
+//	MboxReceive(SemTable[semID].mutexID,&sendResult,0);
 }
 /*
 Frees a semaphore.
@@ -449,21 +470,26 @@ int semFreeReal(int semID){
 	int returnVal = 0;
 	pDebug(2,"semFreeReal()\n");
 	if(SemTable[semID].blockList.count==0)
-		returnVal = 1;
-	else
 		returnVal = 0;
-
-	MboxRelease(SemTable[semID].mBoxID);
-	SemTable[semID].mBoxID = -1;
+	else{ // TODO : TERMINATE REAL!!!!!
+	//	while(SemTable[semID].blockList.count >0){	
+	//		terminateReal(pop(&SemTable[semID].blockList)->pid,-111);
+			//zap(pop(&SemTable[semID].blockList)->pid);
+	//	}
+	}
+	returnVal = 1;
+	
+	int mBoxID = SemTable[semID].mBoxID;
+	SemTable[semID].mBoxID = -1; // use this val in resume of blocked P to termin children if freeing semaphore
 	SemTable[semID].initialVal = -1;
 	SemTable[semID].currentVal = -1;
 	SemTable[semID].processPID = -1;
 	SemTable[semID].processPID = -1;
 	intialize_queue2(&SemTable[semID].blockList);
-	//while(semTable[semID].currentVal != semTable[semID].intitialValue){
-	//}
-	//while(SemTable[semID].blockList.count >0){		
-	//}
+	MboxRelease(mBoxID);
+
+
+
 	putUserMode();
 	return returnVal;
 }
