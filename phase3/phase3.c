@@ -17,6 +17,7 @@
 
 /* PROTOTYPES */
 	void dp3();
+	void ds3();
 	extern void Terminate(int status);
 	void terminateReal(int pid, long returnStatus);
 	int start2(char *);
@@ -29,12 +30,13 @@
 	void waitNotLinux(systemArgs *args);
 	void terminate (systemArgs *args);
 	void semCreate(systemArgs *args);
-	int semCreateReal(int initalVal);
+	int semCreateReal(int initialVal);
 	void semP(systemArgs *args);
 	void semPReal(int handle);
 	void semV(systemArgs *args);
 	void semVReal(int handle);
 	void semFree(systemArgs *args);
+	int semFreeReal(int semID);
 	void getTimeofDay(systemArgs *args);
 	void cPUTime(systemArgs *args);
 	void getPID(systemArgs *args);
@@ -61,17 +63,21 @@
 		ProcTable[i].priority = -1;
 		ProcTable[i].name[0] = '\0';
 		ProcTable[i].status = -1;
+		ProcTable[i].PVstatus = -1;
 		ProcTable[i].mBoxID = -1;
 		ProcTable[i].startFunc = NULL;// startFunction pointer to start
 		ProcTable[i].arg = NULL;
 		ProcTable[i].returnStatus = -1;
 		ProcTable[i].childCount = 0;
-		intialize_queue2(&ProcTable[i].childQuitList);
+		intialize_queue2(&ProcTable[i].childList);
 	}
 
 	for (i=0;i<MAXSEMS;i++){
 		SemTable[i].initialVal = -1;
+		SemTable[i].currentVal = -1;
 		SemTable[i].mBoxID = -1;
+		SemTable[i].processPID = -1;
+		intialize_queue2(&SemTable[i].blockList);
 	}
 	
     /*
@@ -206,10 +212,11 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
 	ProcTable[kidPid%MAXPROC].arg = arg;
 	ProcTable[kidPid%MAXPROC].returnStatus = -1;
-	intialize_queue2(&ProcTable[kidPid%MAXPROC].childQuitList);
+	intialize_queue2(&ProcTable[kidPid%MAXPROC].childList);
 	
 // Add to child count like fork1()
 	ProcTable[getpid()%MAXPROC].childCount++;
+	push(&ProcTable[getpid()%MAXPROC].childList,(long long)time(NULL),&ProcTable[kidPid%MAXPROC]);
 	
 // Print Process Table
 	// dp3();
@@ -233,7 +240,7 @@ arg1: process id of the terminating child.
 arg2: the termination code of the child.
 */
 void waitNotLinux(systemArgs *args){
-	pDebug(2,"waitNotLinux()\n");
+	pDebug(1,"waitNotLinux()\n");
 	int status;
 	int pid = waitReal(&status);
 	args->arg1 = (void*)(long)pid;
@@ -253,7 +260,7 @@ void waitNotLinux(systemArgs *args){
  *
  */
 int waitReal(int *status){ // Like join, makes sure kid has not quit
-	pDebug(2,"waitReal(): Begin\n");
+	pDebug(1,"waitReal(): Begin\n");
 	int joinVal;
 	int pid = join(&joinVal);
     *status = ProcTable[pid%MAXPROC].returnStatus;
@@ -276,23 +283,38 @@ void terminate(systemArgs *args){
 }
 
 void terminateReal(int pid,long returnStatus){
-	if(ProcTable[pid%MAXPROC].childQuitList.count >0){
+	if(debugVal>0){
+		dp3();
+		dumpProcesses();
+	}
+	if(ProcTable[pid%MAXPROC].childList.count >0){
 		pDebug(1,"terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
 		if(debugVal>0)
-			printQ(ProcTable[pid%MAXPROC].childQuitList);
-		procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childQuitList);
-		// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
-		// then zap next child, and so forth
-		//zap(tempChild->pid);
-	}else
+			printQ(ProcTable[pid%MAXPROC].childList);
+		if(ProcTable[pid%MAXPROC].childList.count>0){
+			procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
+			// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
+			// then zap next child, and so forth
+			if(tempChild->status == CHILD_ALIVE){
+				//pDebug(0,"ZAPPING\n");
+				zap(tempChild->pid);
+			}
+			pDebug(1,"terminateReal(): after zap\n");
+		}
+	}else{
 		pDebug(1,"terminateReal(): pid[%d] has 0 children\n",pid);
-	ProcTable[pid%MAXPROC].returnStatus = returnStatus;
-	push(&ProcTable[ProcTable[pid%MAXPROC].parentPID%MAXPROC].childQuitList,(long long)time(NULL),&ProcTable[pid%MAXPROC]);
-	pDebug(2,"terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
-	quit(pid); // Phase 1 must be notified process has quit.
+		ProcTable[pid%MAXPROC].returnStatus = returnStatus;
+		ProcTable[pid%MAXPROC].status = CHILD_DEAD;
+		remove_data(&ProcTable[ProcTable[pid%MAXPROC].parentPID%MAXPROC].childList,pid%MAXPROC);
+		if(debugVal>0)
+				printQ(ProcTable[pid%MAXPROC].childList);
+		pDebug(1,"terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
+
+		quit(returnStatus); // Phase 1 must be notified process has quit.
+	}
 }
 
-/*Creates a user-level semaphore.
+/*Creates a user-level semaphore.p ProcTable[pid%50].childList.count
 Input
 arg1: initial semaphore value.
 Output
@@ -317,6 +339,8 @@ int semCreateReal(int initialVal){
 	for(i=0;i<MAXSEMS;i++){
 		if(SemTable[i].mBoxID == -1){
 			SemTable[i].initialVal = initialVal;
+			SemTable[i].currentVal = 0;
+			SemTable[i].processPID = getpid()%MAXPROC;
 			SemTable[i].mBoxID = MboxCreate(initialVal,0);
 			returnVal = i;
 			break;
@@ -344,10 +368,21 @@ void semP(systemArgs *args){
 
 void semPReal(int semID){
 	int recieveResult;
-	pDebug(2,"semPReal()\n");
-	if(SemTable[semID].initialVal >=0){
-		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
-		SemTable[semID].initialVal--;
+	pDebug(2,"semPReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
+	SemTable[semID].processPID = getpid()%MAXPROC;
+	if(SemTable[semID].currentVal >=0){
+		
+		// If we are going to block on this send, update process status to blocked for semFree()
+		if(SemTable[semID].currentVal == SemTable[semID].initialVal){
+			push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
+			ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
+		}else
+			SemTable[semID].currentVal--;
+	if(debugVal>0){
+		ds3();
+		dp3();
+	}
+		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);	
 	}
 	putUserMode();
 }
@@ -360,7 +395,7 @@ Output
 arg4: -1 if semaphore handle is invalid, 0 otherwise.
 */
 void semV(systemArgs *args){
-	pDebug(2,"semP()\n");
+	pDebug(2,"semV()\n");
 	if(SemTable[(long)args->arg1].mBoxID != -1){
 		semVReal((long)args->arg1);
 		args->arg4 = (void*)(long)0;
@@ -370,8 +405,19 @@ void semV(systemArgs *args){
 
 void semVReal(int semID){
 	int sendResult;
-	pDebug(2,"semVReal()\n");
-	SemTable[semID].initialVal++;
+	pDebug(2,"semVReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
+	SemTable[semID].processPID = getpid()%MAXPROC;
+	if(SemTable[semID].currentVal <= SemTable[semID].initialVal){
+		if (SemTable[semID].blockList.count>0){
+			procPtr tempProc = pop(&SemTable[semID].blockList);
+			ProcTable[tempProc->pid].PVstatus = STATUS_NOT_PV_BLOCKED;
+		}
+	}else		
+		SemTable[semID].currentVal++;
+	if(debugVal>0){
+		ds3();
+		dp3();
+	}
 	MboxReceive(SemTable[semID].mBoxID,&sendResult,0);
 	putUserMode();
 }
@@ -387,9 +433,40 @@ of the Terminate system call.
 */
 void semFree(systemArgs *args){
 	pDebug(2,"semFree()\n");
+	if(SemTable[(long)args->arg1].mBoxID != -1){
+		if(semFreeReal((long)args->arg1)){
+			args->arg4 = (void*)(long)0;
+		}else{
+			args->arg4 = (void*)(long)1;
+		}			
+	}else{
+		args->arg4 = (void*)(long)-1;
+	}
 	putUserMode();
 }
 
+int semFreeReal(int semID){
+	int returnVal = 0;
+	pDebug(2,"semFreeReal()\n");
+	if(SemTable[semID].blockList.count==0)
+		returnVal = 1;
+	else
+		returnVal = 0;
+
+	MboxRelease(SemTable[semID].mBoxID);
+	SemTable[semID].mBoxID = -1;
+	SemTable[semID].initialVal = -1;
+	SemTable[semID].currentVal = -1;
+	SemTable[semID].processPID = -1;
+	SemTable[semID].processPID = -1;
+	intialize_queue2(&SemTable[semID].blockList);
+	//while(semTable[semID].currentVal != semTable[semID].intitialValue){
+	//}
+	//while(SemTable[semID].blockList.count >0){		
+	//}
+	putUserMode();
+	return returnVal;
+}
 /*
 Returns the value of USLOSS time-of-day clock.
 Output
@@ -485,13 +562,27 @@ void putUserMode(){
 
 void dp3(){
     USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
-    USLOSS_Console(" PID  ParentPID Priority  Status  #kids  Name        mBoxID\n");
+    USLOSS_Console(" PID  ParentPID Priority  Status PVstatus #kids  Name        mBoxID\n");
     USLOSS_Console("------------------------------------------------------------\n");
 		for( i= 0; i< MAXPROC;i++){
 			if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
-				USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-3s[%-2d] %-2s[%s] %-3s[%-2d]\n"
+				USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-6s[%-2d] %-3s[%-2d] %-2s[%-7s] %-2s[%-2d]\n"
 						,"",ProcTable[i].pid,"", ProcTable[i].parentPID,"",ProcTable[i].priority,"",
-						ProcTable[i].status,"",ProcTable[i].childCount,"",ProcTable[i].name,"",ProcTable[i].mBoxID);
+						ProcTable[i].status,"",ProcTable[i].PVstatus,"",ProcTable[i].childCount,"",ProcTable[i].name,"",ProcTable[i].mBoxID);
+			}	  
+		}
+    USLOSS_Console("------------------------------------------------------------\n");    
+}
+
+void ds3(){
+    USLOSS_Console("\n------------------------SEM TABLE-----------------------\n");
+    USLOSS_Console(" initialVal  currentVal mBoxID  processPID\n");
+    USLOSS_Console("------------------------------------------------------------\n");
+		for( i= 0; i< MAXPROC;i++){
+			if(SemTable[i].initialVal != -1){ // Need to make legit determination for printing process
+				USLOSS_Console("%-1s[%-2d] %-7s[%-2d] %-6s[%d] %-5s[%-2d]\n"
+						,"",SemTable[i].initialVal,"", SemTable[i].currentVal,"",SemTable[i].mBoxID,"",
+						SemTable[i].processPID);
 			}	  
 		}
     USLOSS_Console("------------------------------------------------------------\n");    

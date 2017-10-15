@@ -20,7 +20,7 @@ int remove_data(MinQueue *heap, int val_to_remove) {
 	Node *current = heap->topPtr;
 	Node *previous = NULL;
 
-	while (current != NULL && current->data->pid == val_to_remove) { //((procTable*)current->data)->mboxID
+	while (current != NULL && current->data->pid != val_to_remove) { //((procTable*)current->data)->mboxID
 		previous = current;
 		current = current->next;
 	}
@@ -119,6 +119,8 @@ struct procTable* pop(MinQueue *heap) {
  ****************************************************************************/
 void intialize_queue2(MinQueue *heap) {
 	heap->size = MAXSIZE;
+	heap->topPtr = NULL;
+	heap->count = 0;
 }
 
 /****************************************************************************

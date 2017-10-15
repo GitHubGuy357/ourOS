@@ -9,9 +9,13 @@ COBJS = phase3.o libuser.o MinQueue.o
 CSRCS = ${COBJS:.o=.c}
 
 PHASE1LIB = patrickphase1
-PHASE2LIB = patrickphase2
 #PHASE1LIB = patrickphase1debug
+PHASE2LIB = patrickphase2
 #PHASE2LIB = patrickphase2debug
+#PHASE2LIB = ourphase2_v6
+
+
+
 
 HDRS = sems.h MinQueue.h
 

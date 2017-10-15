@@ -4,11 +4,12 @@
 
 #ifndef _PHASE3_H
 #define _PHASE3_H
+#include <time.h>
 #include "MinQueue.h"
 
 #define MAXSEMS         200
-#define CHILD_ALIVE 1
-#define CHILD_DEAD 0
+#define CHILD_ALIVE 0
+#define CHILD_DEAD 1
 
 typedef struct procTable *procPtr;
 typedef struct procTable {
@@ -17,8 +18,9 @@ typedef struct procTable {
 	int priority;
 	char name[50];
 	int status;
+	int PVstatus;
 	int childCount;
-	MinQueue childQuitList;
+	MinQueue childList;
 	int mBoxID;
     int (*startFunc)(char *);// startFunction pointer to start
     char *arg;
