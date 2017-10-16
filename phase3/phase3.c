@@ -511,6 +511,11 @@ arg1: the CPU time used by the currently running process.
 */
 void cPUTime(systemArgs *args){
 	pDebug(2,"cPUTime()\n");
+	int status;
+	if(waitDevice(USLOSS_CLOCK_DEV, 0, &status) == 0)
+		args->arg1 = (void*)(long)status;
+	else
+		args->arg1 = (void*)(long)-1;
 	putUserMode();
 }
 
