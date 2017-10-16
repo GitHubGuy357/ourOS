@@ -24,7 +24,7 @@ overview_file_name="$overview_file_folder/$overview_file_name"
 
 #folders to compare
 input_folder_left="$(pwd)/testResults"
-input_folder_right="$(pwd)/testResults_ours"
+input_folder_right="$(pwd)/test_results_ours"
 
 #expected file extensions
 ext=".txt"

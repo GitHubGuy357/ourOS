@@ -8,7 +8,7 @@
 #   th filename, extension, or full path are below 
 
 input_folder="$(pwd)/testcases"
-output_folder="$(pwd)/testResults_ours"
+output_folder="$(pwd)/test_results_ours"
 mkdir -p $output_folder
 
 for entry in "${input_folder}"/*

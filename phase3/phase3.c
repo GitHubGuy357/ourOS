@@ -319,6 +319,10 @@ int terminateReal(int pid,long returnStatus){
 		dp3();
 		dumpProcesses();
 	}
+	
+	if(isZapped())
+		return 0;
+	
 	if(ProcTable[pid%MAXPROC].childList.count >0){
 		pDebug(3," <- terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
 		if(debugVal>0)
@@ -431,9 +435,12 @@ void semPReal(int semID){
 		}
 			MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
 			
-			// If MboxID == 1 the semaphore has benn released, and this child cannot continue to execute.
+			// If MboxID == 1: The semaphore has benn released, and this child cannot continue to execute.
 			if(SemTable[semID].mBoxID == -1){
-				terminateReal(getpid()%MAXPROC,-111);		
+				if(isZapped())
+					terminateReal(getpid()%MAXPROC,0);
+				else
+					terminateReal(getpid()%MAXPROC,1);	
 			}
 			pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 		}
@@ -504,7 +511,7 @@ void semVReal(int semID){
 void semFree(systemArgs *args){
 	pDebug(3," <- semFree()\n");
 	if(SemTable[(long)args->arg1].mBoxID != -1){
-		if(semFreeReal((long)args->arg1)){
+		if(semFreeReal((long)args->arg1) == 0){
 			args->arg4 = (void*)(long)0;
 		}else{
 			args->arg4 = (void*)(long)1;
@@ -525,8 +532,9 @@ int semFreeReal(int semID){
 	//		terminateReal(pop(&SemTable[semID].blockList)->pid,-111);
 			//zap(pop(&SemTable[semID].blockList)->pid);
 	//	}
+		returnVal = 1;
 	}
-	returnVal = 1;
+
 	
 	int mBoxID = SemTable[semID].mBoxID;
 	SemTable[semID].mBoxID = -1; // use this val in resume of blocked P to termin children if freeing semaphore

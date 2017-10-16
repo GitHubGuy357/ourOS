@@ -37,7 +37,6 @@ int start3(char *arg)
     Spawn("Child2", Child1, "Child2", USLOSS_MIN_STACK, 2, &pid);
     USLOSS_Console("start3(): fork %d\n", pid);
     result = SemFree(sem1); 
-	USLOSS_Console("start3(): result %d\n", results);
     if(result == 1)
         USLOSS_Console("start3(): After SemFree with processes blocked\n");
     else{
