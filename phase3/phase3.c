@@ -13,13 +13,13 @@
 	semTable SemTable[MAXSEMS];
 	void (*systemCallVec[MAXSYSCALLS])(systemArgs *args);
 	int i;
-	int debugVal = 1; // Level of debug info: 1)Most 2)Mediulm 3)Least 0)off
+	int debugVal = 0; // Level of debug info: 1)Most 2)Mediulm 3)Least 0)off
 
 /* PROTOTYPES */
 	void dp3();
 	void ds3();
 	extern void Terminate(int status);
-	void terminateReal(int pid, long returnStatus);
+	int terminateReal(int pid, long returnStatus);
 	int start2(char *);
 	extern int start3(char *);
 	int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority);
@@ -128,15 +128,29 @@
  *  Create a user-level process. Use fork1 to create the process, then change it to usermode.
  *  If the spawned startFunction returns, it should have the same effect as calling terminate.
  *  Input
- * 		 arg1: address of the startFunction to spawn.
- * 		 arg2: parameter passed to spawned startFunction.
+ * 		arg1: address of the startFunction to spawn.
+ * 		arg2: parameter passed to spawned startFunction.
+ *		arg3: stack size (in bytes).
+ *		arg4: priority.
+ *		arg5: character string containing process’s name.
+ *	Output
+ *		arg1: the PID of the newly created process; -1 if a process could not be created.
+ * 		arg4: -1 if illegal values are given as input; 0 otherwise.
 **********************************************************************************************/
 void spawn(systemArgs *args){
 	pDebug(3," <- spawn(): BEGIN\n");
 	pDebug(1," <- spawn(): getpid[%d] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),args->arg1,args->arg2,(long)args->arg3,(long)args->arg4,args->arg5);
 	int pid = spawnReal(args->arg5,args->arg1,args->arg2,(long)args->arg3,(long)args->arg4);
 	pDebug(3," <- spawn(): pid[%d]\n",pid);
-	args->arg1 = (void*)(long)pid;
+	
+	// TODO: Check if conditions are within range, than call fork1 to make new process.
+	if(pid > -1){
+		args->arg1 = (void*)(long)pid;
+		if((long)args->arg4 > -1) 
+			args->arg4 = (void*)(long)0;
+		else
+			args->arg4 = (void*)(long)-1;
+	}
 	
 	// Put OS back in usermode
 	putUserMode();
@@ -157,11 +171,14 @@ void spawn(systemArgs *args){
  *  Return Value: 0 means success, -1 means error occurs
  ******************************************************************************/
 int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority){
+	
 // TODO: Check if conditions are within range, than call fork1 to make new process.
-	pDebug(3," <- spawnReal() - START Before fork1():\n" );
+
+	pDebug(3," <- spawnReal() -> START Before fork1():\n" );
 	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
-    pDebug(3," <- spawnReal() - After fork1(): CurrentPID[%d] CurrentName[%s] kidpid[%d] kidName[%s] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),name,kidPid,name,startFunc,arg,stack_size,priority,name);
+    pDebug(3," <- spawnReal() -> After fork1(): CurrentPID[%d] CurrentName[%s] kidpid[%d] kidName[%s] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),name,kidPid,name,startFunc,arg,stack_size,priority,name);
     if (kidPid < 0) {
+		
 	// If returned pid < 0 then there was an issue getting a pid from phase1 procTable.
        USLOSS_Console("startup(): fork1 returned error, ");
        USLOSS_Console("halting...\n");
@@ -175,10 +192,10 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	ProcTable[kidPid%MAXPROC].parentPID = getpid();
 	ProcTable[kidPid%MAXPROC].priority = priority;
 	if(ProcTable[kidPid%MAXPROC].mBoxID == -1){
-		pDebug(3," <- spawnReal() - MailBox is NULL\n");
+		pDebug(1," <- spawnReal() - MailBox is NULL\n");
 		ProcTable[kidPid%MAXPROC].mBoxID = MboxCreate(0,100);
 	}else{
-		pDebug(3," <- spawnReal() - MailBox is %d\n",ProcTable[kidPid%MAXPROC].mBoxID);
+		pDebug(1," <- spawnReal() - MailBox is %d\n",ProcTable[kidPid%MAXPROC].mBoxID);
 	}
 	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
 	ProcTable[kidPid%MAXPROC].arg = arg;
@@ -196,7 +213,7 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	int msg;
 	pDebug(3," <- spawnReal(): Before MboxSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*)); kidMboxID=[%d] parentMboxID=[%d]\n",ProcTable[kidPid%MAXPROC].mBoxID,ProcTable[getpid()%MAXPROC].mBoxID);
 	
-	MboxSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
+	MboxReceive(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
 	
 // Put back into user mode
 //	putUserMode();
@@ -208,9 +225,10 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
  
 /*****************************************************************************
  *  Routine:  spawnLaunch
- *
+ *  Description:
+ *	 			Analougous to Phase 1 launch()
  ******************************************************************************/
-int spawnLaunch(char * func){ // Analougous to Phase 1 launch()
+int spawnLaunch(char * func){ //
 	int msg;
 	int mBoxresult;
 	int launchPID = getpid()%MAXPROC; // DO NOT REMOVE - if getpid() called after purUserMode() halts USLOSS.
@@ -225,12 +243,11 @@ int spawnLaunch(char * func){ // Analougous to Phase 1 launch()
 	}
 	
 // block Equivilent
-	mBoxresult = MboxReceive(ProcTable[getpid()%MAXPROC].mBoxID,&msg,sizeof(void*));
+	mBoxresult = MboxSend(ProcTable[getpid()%MAXPROC].mBoxID,&msg,sizeof(void*));
 	
 // Switch to usermode to run user code.
 	putUserMode();
 	
-
 	pDebug(1," <- spawnLaunch(): Launching_PID = [%d] launchName = [%s] launchFunc = [%p] mBoxID = [%d]\n",launchPID,ProcTable[launchPID].name,ProcTable[launchPID].startFunc,ProcTable[launchPID].mBoxID);
 	
 // launch process
@@ -293,10 +310,11 @@ int waitReal(int *status){ // Like join, makes sure kid has not quit
  *****************************************************************************/
 void terminate(systemArgs *args){
 	pDebug(3," <- terminate()\n");
-	terminateReal(getpid(),(long)args->arg1);
+	int terminateResult = terminateReal(getpid(),(long)args->arg1);
+	args->arg1 = (void*)(long)terminateResult;
 }
 
-void terminateReal(int pid,long returnStatus){
+int terminateReal(int pid,long returnStatus){
 	if(debugVal>2){
 		dp3();
 		dumpProcesses();
@@ -305,14 +323,15 @@ void terminateReal(int pid,long returnStatus){
 		pDebug(3," <- terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
 		if(debugVal>0)
 			printQ(ProcTable[pid%MAXPROC].childList);
-			procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
-			// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
-			// then zap next child, and so forth
-			if(tempChild->status == CHILD_ALIVE){
-				//pDebug(3," <- ZAPPING\n");
-				zap(tempChild->pid);
-			}
-			pDebug(3," <- terminateReal(): after zap\n");
+		procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
+		// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
+		// then zap next child, and so forth
+		if(tempChild->status == CHILD_ALIVE){
+			//pDebug(3," <- ZAPPING\n");
+			zap(tempChild->pid);
+		}
+		pDebug(3," <- terminateReal(): after zap\n");
+		quit(returnStatus); // Phase 1 must be notified process has quit.
 	}else{
 		pDebug(3," <- terminateReal(): pid[%d] has 0 children\n",pid);
 		ProcTable[pid%MAXPROC].returnStatus = returnStatus;
@@ -323,10 +342,11 @@ void terminateReal(int pid,long returnStatus){
 		
 		if(debugVal>0)
 				printQ(ProcTable[pid%MAXPROC].childList);
-		pDebug(3," <- terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
 
+		pDebug(1," <- terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
 		quit(returnStatus); // Phase 1 must be notified process has quit.
 	}
+	return returnStatus;
 }
 
 /*****************************************************************************
@@ -354,6 +374,7 @@ void semCreate(systemArgs *args){
 }
 
 int semCreateReal(int initialVal){
+	pDebug(1,"semCreateReal(): initialVal = [%d]\n",initialVal);
 	int returnVal = -1;
 	for(i=0;i<MAXSEMS;i++){
 		if(SemTable[i].mBoxID == -1){
@@ -394,11 +415,12 @@ void semPReal(int semID){
 	//get mutex
 //	MboxSend(SemTable[semID].mutexID,&recieveResult,0);
 	
-	pDebug(3," <- semPReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
+	pDebug(1," <- semPReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal >=0){
 		// If we are going to block on this send, update process status to blocked for semFree()
-		if(SemTable[semID].currentVal == SemTable[semID].initialVal){
+		if(SemTable[semID].currentVal+1 >= SemTable[semID].initialVal){
+			pDebug(1,"semPReal(): Adding to blockList\n");
 			push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
 			ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
 		}else
@@ -411,9 +433,9 @@ void semPReal(int semID){
 			
 			// If MboxID == 1 the semaphore has benn released, and this child cannot continue to execute.
 			if(SemTable[semID].mBoxID == -1){
-				terminateReal(getpid()%MAXPROC,-111);
-				pDebug(3," <- semPReal(): After MboxSend(SemTable[semID].mBoxID,&recieveResult,0);\n\n\n\n");
+				terminateReal(getpid()%MAXPROC,-111);		
 			}
+			pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 		}
 		
 	putUserMode();
@@ -432,7 +454,7 @@ void semPReal(int semID){
  *      arg4: -1 if semaphore handle is invalid, 0 otherwise.
  *****************************************************************************/
 void semV(systemArgs *args){
-	pDebug(3," <- semV()\n");
+	pDebug(1," <- semV()\n");
 	if(SemTable[(long)args->arg1].mBoxID != -1){
 		semVReal((long)args->arg1);
 		args->arg4 = (void*)(long)0;
@@ -446,7 +468,7 @@ void semVReal(int semID){
 	//get mutex
 	//	MboxSend(SemTable[semID].mutexID,&sendResult,0);
 	
-	pDebug(3," <- semVReal(): CurrentPID = [%d]\n",getpid()%MAXPROC);
+	pDebug(1," <- semVReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal <= SemTable[semID].initialVal){
 		if (SemTable[semID].blockList.count>0){
@@ -523,10 +545,15 @@ int semFreeReal(int semID){
  *
  *  Returns the value of USLOSS time-of-day clock.
  *  Output
- *  arg1: the time of day.
+ *  	arg1: the time of day.
  *****************************************************************************/
 void getTimeofDay(systemArgs *args){
 	pDebug(3," <- getTimeofDay()\n");
+	int status;
+	if (USLOSS_DeviceInput(USLOSS_CLOCK_DEV, 0, &status) == 0)
+		args->arg1 = (void*)(long)status;
+	else
+		args->arg1 = (void*)(long)-1; //zapped
 	putUserMode();
 }
 
@@ -541,11 +568,7 @@ void getTimeofDay(systemArgs *args){
  *****************************************************************************/
 void cPUTime(systemArgs *args){
 	pDebug(3," <- cPUTime()\n");
-	int status;
-	if(waitDevice(USLOSS_CLOCK_DEV, 0, &status) == 0)
-		args->arg1 = (void*)(long)status;
-	else
-		args->arg1 = (void*)(long)-1; //zapped
+	args->arg1 = (void*)(long)readtime();
 	putUserMode();
 }
 
