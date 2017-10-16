@@ -205,7 +205,7 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	pDebug(3," <- spawnReal() - END\n");
 	return kidPid;
 }	
- 
+
 /*****************************************************************************
  *  Routine:  spawnLaunch
  *
