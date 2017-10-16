@@ -15,35 +15,8 @@
 	int i;
 	int debugVal = 0; // Level of debug info: 1)Most 2)Mediulm 3)Least 0)off
 
-/* PROTOTYPES */
-	void dp3();
-	void ds3();
-	extern void Terminate(int status);
-	int terminateReal(int pid, long returnStatus);
-	int start2(char *);
-	extern int start3(char *);
-	int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority);
-	int waitReal(int *status);
-	void nullsys3(systemArgs *args); // Intialize after intializeSysCalls so all syscall vecs being pointing to nullsys3;
-    void intializeSysCalls();
-	void spawn(systemArgs *args);
-	void waitNotLinux(systemArgs *args);
-	void terminate (systemArgs *args);
-	void semCreate(systemArgs *args);
-	int semCreateReal(int initialVal);
-	void semP(systemArgs *args);
-	void semPReal(int handle);
-	void semV(systemArgs *args);
-	void semVReal(int handle);
-	void semFree(systemArgs *args);
-	int semFreeReal(int semID);
-	void getTimeofDay(systemArgs *args);
-	void cPUTime(systemArgs *args);
-	void getPID(systemArgs *args);
-	int pDebug(int level, char *fmt, ...);
-	void putUserMode();
-	int spawnLaunch(char* func);
-	int start2(char *arg){
+	
+int start2(char *arg){
 	pDebug(3," <- start2()\n");
     int pid;
     int status;
