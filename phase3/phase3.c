@@ -580,27 +580,7 @@ void getPID (systemArgs *args){
 	systemCallVec[SYS_SEMV] = semV;
 	systemCallVec[SYS_SEMFREE] = semFree;
  } 
-/*****************************************************************************
- *  intializeSysCalls 
- *****************************************************************************/
-  void intializeSysCalls(){
-    for (int i = 0; i < MAXSYSCALLS; i++) {
-        USLOSS_Sysargs[i] = nullsys3;
-    }
-	USLOSS_Sysargs[SYS_SPAWN] = spawn;
-	USLOSS_Sysargs[SYS_WAIT] = waitNotLinux;
-	USLOSS_Sysargs[SYS_TERMINATE] = terminate;
-	USLOSS_Sysargs[SYS_GETTIMEOFDAY] = getTimeofDay;
-	USLOSS_Sysargs[SYS_CPUTIME] = cPUTime;
-	USLOSS_Sysargs[SYS_GETPID] = getPID;
-	USLOSS_Sysargs[SYS_SEMCREATE] = semCreate;
-	USLOSS_Sysargs[SYS_SEMP] = semP;
-	USLOSS_Sysargs[SYS_SEMV] = semV;
-	USLOSS_Sysargs[SYS_SEMFREE] = semFree;
 
- }*/ /* intializeSysCalls */
-
- 
 void nullsys3(systemArgs *args) {
     USLOSS_Console("nullsys3(): Invalid syscall %d. Halting...\n", args->number);
 	//Terminate instead of USLOSS_Halt(1);
