@@ -1,10 +1,10 @@
 #include <usloss.h>
 #include <usyscall.h>
+#include <libuser.h>
 #include <phase1.h>
 #include <phase2.h>
 #include <phase3.h>
 #include <stdio.h>
-#include "message.h"
 #include <string.h> //For memcpy
 #include "sems.h"
 
@@ -112,7 +112,7 @@ int start2(char *arg){
 **********************************************************************************************/
 void spawn(systemArgs *args){
 	pDebug(3," <- spawn(): BEGIN\n");
-	pDebug(1," <- spawn(): getpid[%d] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),args->arg1,args->arg2,(long)args->arg3,(long)args->arg4,args->arg5);
+	pDebug(3," <- spawn(): getpid[%d] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),args->arg1,args->arg2,(long)args->arg3,(long)args->arg4,args->arg5);
 	int pid = spawnReal(args->arg5,args->arg1,args->arg2,(long)args->arg3,(long)args->arg4);
 	pDebug(3," <- spawn(): pid[%d]\n",pid);
 	
@@ -123,7 +123,8 @@ void spawn(systemArgs *args){
 			args->arg4 = (void*)(long)0;
 		else
 			args->arg4 = (void*)(long)-1;
-	}
+	}else
+		args->arg1 = (void*)(long)-1;
 	
 	// Put OS back in usermode
 	putUserMode();
@@ -149,13 +150,11 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 
 	pDebug(3," <- spawnReal() -> START Before fork1():\n" );
 	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
-    pDebug(3," <- spawnReal() -> After fork1(): CurrentPID[%d] CurrentName[%s] kidpid[%d] kidName[%s] startFunc[%p] args[%s] stack_size[%d] priority[%d] name[%s]\n",getpid(),name,kidPid,name,startFunc,arg,stack_size,priority,name);
-    if (kidPid < 0) {
-		
+    pDebug(3," <- spawnReal() -> After fork1(): cPID[%d] kPID[%d] kName[%s] startFunc[%p] args[%s] stack_size[%d] priority[%d]\n",getpid(),kidPid,name,startFunc,arg,stack_size,priority);
+
 	// If returned pid < 0 then there was an issue getting a pid from phase1 procTable.
-       USLOSS_Console("startup(): fork1 returned error, ");
-       USLOSS_Console("halting...\n");
-       USLOSS_Halt(1);
+    if (kidPid < 0) {
+		return -1;
     }
 	
 // Add new process to ProcTable
@@ -165,10 +164,10 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	ProcTable[kidPid%MAXPROC].parentPID = getpid();
 	ProcTable[kidPid%MAXPROC].priority = priority;
 	if(ProcTable[kidPid%MAXPROC].mBoxID == -1){
-		pDebug(1," <- spawnReal() - MailBox is NULL\n");
 		ProcTable[kidPid%MAXPROC].mBoxID = MboxCreate(0,100);
+		pDebug(3," <- spawnReal() - Creating MboxID = [%d]\n",ProcTable[kidPid%MAXPROC].mBoxID);
 	}else{
-		pDebug(1," <- spawnReal() - MailBox is %d\n",ProcTable[kidPid%MAXPROC].mBoxID);
+		pDebug(3," <- spawnReal() - MboxID = [%d]\n",ProcTable[kidPid%MAXPROC].mBoxID);
 	}
 	ProcTable[kidPid%MAXPROC].startFunc = startFunc;// startFunction pointer to start
 	ProcTable[kidPid%MAXPROC].arg = arg;
@@ -184,15 +183,29 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	
 // Open up mBoxsend to waitNotLinux.
 	int msg;
-	pDebug(3," <- spawnReal(): Before MboxSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*)); kidMboxID=[%d] parentMboxID=[%d]\n",ProcTable[kidPid%MAXPROC].mBoxID,ProcTable[getpid()%MAXPROC].mBoxID);
 	
-	MboxReceive(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
+// Unblocks child if was blocked.
+	MboxCondSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
+
+// Check if kid or prent should execute.
+	if(debugVal>2){
+		dp3();
+		dumpProcesses();
+	}
+	if(ProcTable[kidPid%MAXPROC].priority < ProcTable[getpid()].priority){
+		pDebug(1," <- spawnReal(): Kid[%d] priority (MboxID = [%d]) is HIGHER , blocking parent[%d]...\n",kidPid,ProcTable[getpid()%MAXPROC].mBoxID,getpid());
+	
+		// block parent equivalent, so child can run.
+	//	MboxReceive(ProcTable[getpid()%MAXPROC].mBoxID,&msg,sizeof(void*));
+	}else{
+		pDebug(1," <- spawnReal(): Kid[%d] priority (MboxID = [%d]) is LOWER , continue parent[%d]...\n",kidPid,ProcTable[kidPid%MAXPROC].mBoxID,getpid());
+	}
 	
 // Put back into user mode
 //	putUserMode();
 	
 // Return pid of new process
-	pDebug(3," <- spawnReal() - END\n");
+	pDebug(3," <- spawnReal() - END pid=[%d] kidpid=[%d]\n",getpid(),kidPid);
 	return kidPid;
 }	
  
@@ -206,29 +219,41 @@ int spawnLaunch(char * func){ //
 	int mBoxresult;
 	int launchPID = getpid()%MAXPROC; // DO NOT REMOVE - if getpid() called after purUserMode() halts USLOSS.
 	pDebug(3," <- spawnLaunch() - START: startFunc = [%p]\n",func);
-	
+
+		
 // If mBoxID == -1, mailbox has not been attached to process, attache one.
 	if(ProcTable[launchPID].mBoxID == -1){
 		ProcTable[launchPID].mBoxID = MboxCreate(0,100);
-		pDebug(3," <- spawnLaunch() - MailBox is NULL\n");
+		pDebug(3," <- spawnLaunch() - Calling PID=[%d], MBox is NULL, Creating MboxID = [%d]\n",getpid(),ProcTable[launchPID].mBoxID);
+		MboxReceive(ProcTable[launchPID%MAXPROC].mBoxID,&msg,sizeof(void*));
 	}else{
-		pDebug(3," <- spawnLaunch() - MailBox is %d\n",ProcTable[getpid()%MAXPROC].mBoxID);
+		pDebug(3," <- spawnLaunch() - MboxID = [%d]\n",ProcTable[getpid()%MAXPROC].mBoxID);
 	}
-	
-// block Equivilent
-	mBoxresult = MboxSend(ProcTable[getpid()%MAXPROC].mBoxID,&msg,sizeof(void*));
-	
-// Switch to usermode to run user code.
-	putUserMode();
-	
-	pDebug(1," <- spawnLaunch(): Launching_PID = [%d] launchName = [%s] launchFunc = [%p] mBoxID = [%d]\n",launchPID,ProcTable[launchPID].name,ProcTable[launchPID].startFunc,ProcTable[launchPID].mBoxID);
-	
-// launch process
-	int result = ProcTable[launchPID].startFunc(ProcTable[launchPID].arg);
-    pDebug(1," <- spawnLaunch() - After Launch: result = [%d] mBoxReceiveResult = [%d]\n",result,mBoxresult);
-	//quit(result);
-	Terminate(launchPID);
-	return result; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
+	if(isZapped()){
+		pDebug(3, " <- spawnLaunch() - pid[%d] ZAPPED, call quit\n",getpid());
+		quit(88);
+	}
+	if(ProcTable[launchPID%MAXPROC].status == 1){
+		pDebug(1, " <- spawnLaunch() - DEAD CHILD Trying to LAUNCH!!!\n",getpid());
+	}else{
+		// un-block Equivilent, so parent is unblocked.
+		//	if(ProcTable[launchPID].priority < ProcTable[ProcTable[launchPID].parentPID].priority)
+		mBoxresult = MboxCondSend(ProcTable[ProcTable[launchPID].parentPID].mBoxID,&msg,sizeof(void*));
+			
+		// Switch to usermode to run user code.
+		putUserMode();
+		
+		pDebug(1,"\n <- spawnLaunch(): Launching_PID = [%d] launchName = [%s] launchFunc = [%p] mBoxID = [%d]\n",launchPID,ProcTable[launchPID].name,ProcTable[launchPID].startFunc,ProcTable[launchPID].mBoxID);
+		
+		// launch process
+		int result = ProcTable[launchPID].startFunc(ProcTable[launchPID].arg);
+		pDebug(1," <- spawnLaunch() - After Launch: result = [%d] mBoxReceiveResult = [%d]\n",result,mBoxresult);
+		
+		Terminate(ProcTable[launchPID].returnStatus);
+		pDebug(1," <- spawnLaunch() - AFTER TERMINATE\n");
+		return -111; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
+		}
+	return -111;
 }
 
 /*****************************************************************************
@@ -263,6 +288,15 @@ int waitReal(int *status){ // Like join, makes sure kid has not quit
 	pDebug(1," <- waitReal(): Begin\n");
 	int joinVal;
 	int pid = join(&joinVal);
+	if(ProcTable[pid%MAXPROC].status == 1){
+		//dumpProcesses();
+	//	dp3();
+		pDebug(1," <- waitReal(): Child is DEAD, pidRetunred = [%d]\n",pid);
+//		zap(pid);
+		//return -1;
+	
+	}
+		
     *status = ProcTable[pid%MAXPROC].returnStatus;
 	pDebug(1," <- waitReal(): End - CurrentPID[%d] joinPID[%d] joinVal[%d]\n",getpid(),pid,joinVal);
 	//putUserMode();
@@ -288,42 +322,43 @@ void terminate(systemArgs *args){
 }
 
 int terminateReal(int pid,long returnStatus){
-	if(debugVal>2){
-		dp3();
-		dumpProcesses();
-	}
-	
+//	int sendResult = -1;
+//	int sendMsg;
+
+	ProcTable[pid%MAXPROC].returnStatus = returnStatus;
 	if(isZapped())
 		return 0;
-	
+	//dp3();
 	if(ProcTable[pid%MAXPROC].childList.count >0){
-		pDebug(3," <- terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
+		pDebug(1," <- terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
 		if(debugVal>0)
 			printQ(ProcTable[pid%MAXPROC].childList);
-		procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
-		// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped,
-		// then zap next child, and so forth
-		if(tempChild->status == CHILD_ALIVE){
-			//pDebug(3," <- ZAPPING\n");
-			zap(tempChild->pid);
+		while(ProcTable[pid%MAXPROC].childList.count >0){
+
+			procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
+			// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped, then zap next child, and so forth
+			if(tempChild->status == CHILD_ALIVE){
+				pDebug(1," <- ZAPPING --- Child[%d]\n",tempChild->pid);
+				tempChild->status = CHILD_ZAPPED;
+				ProcTable[pid%MAXPROC].childCount--;
+				zap(tempChild->pid);
+			}
+			pDebug(3," <- terminateReal(): after zap\n");
+
 		}
-		pDebug(3," <- terminateReal(): after zap\n");
-		quit(returnStatus); // Phase 1 must be notified process has quit.
+			//quit(returnStatus); // Phase 1 must be notified process has quit.
 	}else{
-		pDebug(3," <- terminateReal(): pid[%d] has 0 children\n",pid);
+		pDebug(1," <- terminateReal(): pid[%d] has 0 children\n",pid);
 		ProcTable[pid%MAXPROC].returnStatus = returnStatus;
 		ProcTable[pid%MAXPROC].status = CHILD_DEAD;
 		
 		// Remove child from child list of parent as it has quit normally
 		remove_data(&ProcTable[ProcTable[pid%MAXPROC].parentPID%MAXPROC].childList,pid%MAXPROC);
-		
-		if(debugVal>0)
-				printQ(ProcTable[pid%MAXPROC].childList);
 
 		pDebug(1," <- terminateReal(): END - pid[%d] returnStatus[%d]\n",pid,returnStatus);
-		quit(returnStatus); // Phase 1 must be notified process has quit.
+		quit(-1111); // Phase 1 must be notified process has quit.
 	}
-	return returnStatus;
+	return -1111;
 }
 
 /*****************************************************************************
@@ -351,7 +386,7 @@ void semCreate(systemArgs *args){
 }
 
 int semCreateReal(int initialVal){
-	pDebug(1,"semCreateReal(): initialVal = [%d]\n",initialVal);
+	pDebug(3,"semCreateReal(): initialVal = [%d]\n",initialVal);
 	int returnVal = -1;
 	for(i=0;i<MAXSEMS;i++){
 		if(SemTable[i].mBoxID == -1){
@@ -392,12 +427,12 @@ void semPReal(int semID){
 	//get mutex
 //	MboxSend(SemTable[semID].mutexID,&recieveResult,0);
 	
-	pDebug(1," <- semPReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
+	pDebug(3," <- semPReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal >=0){
 		// If we are going to block on this send, update process status to blocked for semFree()
 		if(SemTable[semID].currentVal+1 >= SemTable[semID].initialVal){
-			pDebug(1,"semPReal(): Adding to blockList\n");
+			pDebug(3,"semPReal(): Adding to blockList\n");
 			push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
 			ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
 		}else
@@ -408,14 +443,14 @@ void semPReal(int semID){
 		}
 			MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
 			
-			// If MboxID == 1: The semaphore has benn released, and this child cannot continue to execute.
+			// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
 			if(SemTable[semID].mBoxID == -1){
 				if(isZapped())
 					terminateReal(getpid()%MAXPROC,0);
 				else
 					terminateReal(getpid()%MAXPROC,1);	
 			}
-			pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
+			pDebug(3," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 		}
 		
 	putUserMode();
@@ -434,7 +469,7 @@ void semPReal(int semID){
  *      arg4: -1 if semaphore handle is invalid, 0 otherwise.
  *****************************************************************************/
 void semV(systemArgs *args){
-	pDebug(1," <- semV()\n");
+	pDebug(3," <- semV()\n");
 	if(SemTable[(long)args->arg1].mBoxID != -1){
 		semVReal((long)args->arg1);
 		args->arg4 = (void*)(long)0;
@@ -448,7 +483,7 @@ void semVReal(int semID){
 	//get mutex
 	//	MboxSend(SemTable[semID].mutexID,&sendResult,0);
 	
-	pDebug(1," <- semVReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
+	pDebug(3," <- semVReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	if(SemTable[semID].currentVal <= SemTable[semID].initialVal){
 		if (SemTable[semID].blockList.count>0){

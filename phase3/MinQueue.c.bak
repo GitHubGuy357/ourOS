@@ -46,7 +46,7 @@ void printQ(MinQueue q) {
 	// WHY DOES THIS POINTER PRINTING DOES NOT WORK??? FIRST ELEMENT SHOWS IN DATA CORRECTLY, NEVER PRINTS, PRINTS 1 LESS ELEMENT AND THATS IT
 	Node *tmp = q.topPtr;
 	while (tmp != NULL) {
-		printf(" ->Pid:[%d], Name:[%s] Status:[%d]\n", tmp->data->pid, tmp->data->name, tmp->data->status);
+		printf("  ->Pid:[%d], Name:[%s] Status:[%d]\n", tmp->data->pid, tmp->data->name, tmp->data->status);
 		tmp = tmp->next;
 	}
 }

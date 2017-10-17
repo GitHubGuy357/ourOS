@@ -10,6 +10,7 @@
 #define MAXSEMS         200
 #define CHILD_ALIVE 0
 #define CHILD_DEAD 1
+#define CHILD_ZAPPED 2
 
 typedef struct procTable *procPtr;
 typedef struct procTable {
@@ -34,6 +35,7 @@ typedef struct procTable {
 	int terminateReal(int pid, long returnStatus);
 	int start2(char *);
 	extern int start3(char *);
+	//int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority, int *pid);
 	int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, int priority);
 	int waitReal(int *status);
 	void nullsys3(systemArgs *args); // Intialize after intializeSysCalls so all syscall vecs being pointing to nullsys3;
