@@ -428,22 +428,15 @@ void semPReal(int semID){
 	
 	pDebug(1," <- semPReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
-	if(SemTable[semID].currentVal <= 0)
+	// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
+	if(SemTable[semID].mBoxID == -1){
+		if(isZapped())
+			terminateReal(getpid()%MAXPROC,0);
+		else
+			terminateReal(getpid()%MAXPROC,1);	
+	}
+	if(SemTable[semID].currentVal <= 0){
 		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
-	if(SemTable[semID].currentVal >=0){
-		// If we are going to block on this send, update process status to blocked for semFree()
-		if(SemTable[semID].currentVal+1 >= SemTable[semID].initialVal){
-			pDebug(1,"semPReal(): Adding to blockList\n");
-			push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
-			ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
-		}else
-			SemTable[semID].currentVal--;
-		if(debugVal>2){
-			ds3();
-			dp3();
-		}
-
-			
 		// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
 		if(SemTable[semID].mBoxID == -1){
 			if(isZapped())
@@ -451,10 +444,32 @@ void semPReal(int semID){
 			else
 				terminateReal(getpid()%MAXPROC,1);	
 		}
-		pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
-		}else{
-			
+	}
+	if(SemTable[semID].currentVal >=0){
+	// If we are going to block on this send, update process status to blocked for semFree()
+	if(SemTable[semID].currentVal+1 >= SemTable[semID].initialVal){
+		pDebug(1,"semPReal(): Adding to blockList\n");
+		push(&SemTable[semID].blockList,(long long)time(NULL),&ProcTable[SemTable[semID].processPID]);
+		ProcTable[SemTable[semID].processPID].PVstatus = STATUS_PV_BLOCKED;
+	}else
+		SemTable[semID].currentVal--;
+	if(debugVal>2){
+		ds3();
+		dp3();
+	}
+// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
+		if(SemTable[semID].mBoxID == -1){
+			if(isZapped())
+				terminateReal(getpid()%MAXPROC,0);
+			else
+				terminateReal(getpid()%MAXPROC,1);	
 		}
+			
+		
+		pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
+	}else{
+			
+	}
 		
 	putUserMode();
 	
