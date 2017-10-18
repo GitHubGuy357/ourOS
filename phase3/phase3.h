@@ -29,6 +29,7 @@ typedef struct procTable {
 } procTable; 
 
 /* PROTOTYPES */
+	void cleanUp(int pid);
 	void dp3();
 	void ds3();
 	extern void Terminate(int status);

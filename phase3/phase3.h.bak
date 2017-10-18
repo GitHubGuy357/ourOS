@@ -10,6 +10,7 @@
 #define MAXSEMS         200
 #define CHILD_ALIVE 0
 #define CHILD_DEAD 1
+#define CHILD_ZAPPED 2
 
 typedef struct procTable *procPtr;
 typedef struct procTable {
@@ -28,6 +29,7 @@ typedef struct procTable {
 } procTable; 
 
 /* PROTOTYPES */
+	void cleaUp(int pid);
 	void dp3();
 	void ds3();
 	extern void Terminate(int status);
