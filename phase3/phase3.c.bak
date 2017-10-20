@@ -451,7 +451,9 @@ void semPReal(int semID){
 	if(debugVal>2){
 		ds3();
 		dp3();
-	}	
+	}
+// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.			
+		
 		pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 	}else{
 			
