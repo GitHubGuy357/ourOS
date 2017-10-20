@@ -1,3 +1,19 @@
+/* ------------------------------------------------------------------------
+ phase3.c
+
+ University of Arizona
+ Computer Science 452
+ 
+ Group: James Rodgers, Ben Shinohara, and Adam Shinohara
+
+ This code is used to simulate using semaphores to execute critical sections of code on
+ an operating system. This also requires that several interrupts be enabled,
+ and implemented. This code spawns user processes and also terminates them. 
+ Mailboxes to send and receive are used to implement semaphores to provide 
+ mutual exclusion.
+
+ ------------------------------------------------------------------------ */
+
 #include <usloss.h>
 #include <usyscall.h>
 #include <libuser.h>
@@ -15,7 +31,15 @@
 	int i;
 	int debugVal = 0; // Level of debug info: 1)Most 2)Mediulm 3)Least 0)off
 
-	
+/*****************************************************************************
+ *  Routine:  start2
+ *
+ *	Begin by initializing both the process table and semaphore tables
+ *	Syscalls will also be initialized in this function. Return pid of the 
+ *	first process that is created.
+ * 
+**********************************************************************************************/
+
 int start2(char *arg){
 	pDebug(3," <- start2()\n");
     int pid;
@@ -30,6 +54,8 @@ int start2(char *arg){
     /*
      * Data structure initialization as needed...
      */
+	 
+	 //Initialize the process table here
 	for (i=0;i<MAXPROC;i++){
 		ProcTable[i].pid = -1;
 		ProcTable[i].parentPID = -1;
@@ -45,6 +71,7 @@ int start2(char *arg){
 		intialize_queue2(&ProcTable[i].childList);
 	}
 
+	//Initialize the semaphore table here
 	for (i=0;i<MAXSEMS;i++){
 		SemTable[i].initialVal = -1;
 		SemTable[i].currentVal = -1;
@@ -149,6 +176,8 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 // TODO: Check if conditions are within range, than call fork1 to make new process.
 
 	pDebug(3," <- spawnReal() -> START Before fork1():\n" );
+	
+	//fork to create the new process
 	int kidPid = fork1(name, spawnLaunch, arg, stack_size,priority);
     pDebug(2," <- spawnReal() -> After fork1(): cPID[%d] kPID[%d] kName[%s] startFunc[%p] args[%s] stack_size[%d] priority[%d]\n",getpid(),kidPid,name,startFunc,arg,stack_size,priority);
 
@@ -163,6 +192,9 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	ProcTable[kidPid%MAXPROC].status = CHILD_ALIVE;
 	ProcTable[kidPid%MAXPROC].parentPID = getpid();
 	ProcTable[kidPid%MAXPROC].priority = priority;
+	
+	//check and see if a mailbox has been created for the process yet,
+	//if no mailbox has been created, initialize one
 	if(ProcTable[kidPid%MAXPROC].mBoxID == -1){
 		ProcTable[kidPid%MAXPROC].mBoxID = MboxCreate(0,100);
 		pDebug(3," <- spawnReal() - Creating MboxID = [%d]\n",ProcTable[kidPid%MAXPROC].mBoxID);
@@ -176,6 +208,8 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	
 // Add to child count like fork1()
 	ProcTable[getpid()%MAXPROC].childCount++;
+	
+	//Add the process to the queue
 	push(&ProcTable[getpid()%MAXPROC].childList,(long long)time(NULL),&ProcTable[kidPid%MAXPROC]);
 	
 // Print Process Table
@@ -186,6 +220,13 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 	
 // Unblocks child if was blocked.
 	pDebug(2," <- spawnReal() - unblocking child = [%d] startFunc=[%p] mboxID=[%d]\n",ProcTable[kidPid%MAXPROC].pid,ProcTable[kidPid%MAXPROC].startFunc,ProcTable[kidPid%MAXPROC].mBoxID);
+	
+	//A conditional send is used to unblock a child, if it was blocked.
+	//Conditional send is used because 2 possibilities occur
+	//1. The parent is higher priority than the child and spawnreal will run to completeion
+	//and there will be nothing to unblock
+	//2. The parent is lower priority than the child and spawnreal will unblock the child
+	//from where it blocked in spawn launch
 	MboxCondSend(ProcTable[kidPid%MAXPROC].mBoxID,&msg,sizeof(void*));
 
 // Check if kid or prent should execute.
@@ -193,6 +234,8 @@ int spawnReal(char *name, int (*startFunc)(char *), char *arg, int stack_size, i
 		dp3();
 		dumpProcesses();
 	}
+	
+	//statements used for debugging
 	if(ProcTable[kidPid%MAXPROC].priority < ProcTable[getpid()].priority){
 		pDebug(2," <- spawnReal(): Kid[%d] priority (MboxID = [%d]) is HIGHER , blocking parent[%d]...\n",kidPid,ProcTable[getpid()%MAXPROC].mBoxID,getpid());
 	}else{
@@ -220,18 +263,30 @@ int spawnLaunch(char * func){ //
 	
 // If mBoxID == -1, mailbox has not been attached to process, attache one.
 	if(ProcTable[launchPID].mBoxID == -1){
+		//creates a zero slot mailbox
 		ProcTable[launchPID].mBoxID = MboxCreate(0,100);
 		pDebug(2," <- spawnLaunch() - Calling PID=[%d], MBox is NULL, Creating MboxID = [%d]\n",getpid(),ProcTable[launchPID].mBoxID);
+		
+		//If the mailbox has not yet been initialized, this means that spawn launch of
+		//the parent process has not yet finished, because the child is of higher priority.
+		//Therefore block at this point so that the necessary actions of the parent 
+		//process can occur
 		MboxReceive(ProcTable[launchPID].mBoxID,&msg,sizeof(void*));
+		
+		//update the launchPid after blocking
 		launchPID = getpid()%MAXPROC;
 		pDebug(2," <- spawnLaunch() - After MboxReceive mboxID = [%d] launchPID=[%d]\n",ProcTable[launchPID].mBoxID,launchPID);
 	}else{
 		pDebug(3," <- spawnLaunch() - MboxID = [%d]\n",ProcTable[getpid()%MAXPROC].mBoxID);
 	}
+	
+	//If the process is zapped, you no longer want it to run. Therefore call quit on the process
 	if(isZapped()){
 		pDebug(3, " <- spawnLaunch() - pid[%d] ZAPPED, call quit\n",getpid());
 		quit(-3);
 	}
+	
+	//This status means that a child that is dead is trying to run, have the process quit
 	if(ProcTable[launchPID].status == 1){
 		pDebug(2, " <- spawnLaunch() - DEAD CHILD Trying to LAUNCH!!!\n",getpid());
 		quit(-3);
@@ -246,6 +301,8 @@ int spawnLaunch(char * func){ //
 		int result = ProcTable[launchPID].startFunc(ProcTable[launchPID].arg);
 		pDebug(2," <- spawnLaunch() - After Launch: result = [%d]\n",result);
 		
+		//Terminate the current process after it is finished running. This is so that 
+		//quit is called on the process
 		Terminate(ProcTable[launchPID].returnStatus);
 		pDebug(2," <- spawnLaunch() - AFTER TERMINATE\n");
 		return -3; // probly wrong, had to change prototype to int spawnLaunch(), spawnLaunch is called however.
@@ -284,6 +341,9 @@ void waitNotLinux(systemArgs *args){
 int waitReal(int *status){ // Like join, makes sure kid has not quit
 	pDebug(2," <- waitReal(): Begin\n");
 	int joinVal;
+	
+	//call join on the current process so that it waits for 
+	//ita child process to quit
 	int pid = join(&joinVal);
 	if(ProcTable[pid%MAXPROC].status == 1){
 		//dumpProcesses();
@@ -318,20 +378,43 @@ void terminate(systemArgs *args){
 	args->arg1 = (void*)(long)terminateResult;
 }
 
+/*****************************************************************************
+ *	Routine:  terminateReal
+ *
+ *	Terminates the invoking process and all of its children, and synchronizes
+ *  with its parent’s Wait system call. Processes are terminated by zap’ing
+ *  them.When all user processes have terminated, your operating system should
+ *  shut down. Thus, after start3 terminates (or returns) all user processes
+ *  should have terminated. Since there should then be no runnable or blocked
+ *  processes, the kernel will halt.
+ *  Input
+ *  	pid: pid of the process to terminate
+ *		returnStatus: return status for the calling process
+ *****************************************************************************/
 int terminateReal(int pid,long returnStatus){
 //	int sendResult = -1;
 //	int sendMsg;
 
+	//set the return status in the process table 
 	ProcTable[pid%MAXPROC].returnStatus = returnStatus;
+	
+	//if the process has already been zapped, return 0
 	if(isZapped())
 		return 0;
 	//dp3();
+	
+	//Checks to see if the process being terminated has children
+	//if the process does have children, then you need to zap all the 
+	//children along with the calling process
 	if(ProcTable[pid%MAXPROC].childList.count >0){
 		pDebug(2," <- terminateReal(): pid[%d] has [%d] children:\n",pid,ProcTable[pid%MAXPROC].childCount);
 		if(debugVal>0)
 			printQ(ProcTable[pid%MAXPROC].childList);
+		
+		//This loop is used to zap all the children of the calling process
 		while(ProcTable[pid%MAXPROC].childList.count >0){
 
+			//gets the child of the current process from the queue
 			procPtr tempChild = pop(&ProcTable[pid%MAXPROC].childList);
 			// zap 1 child at a time, then when child quits, parent get reawoke when child realizes its zapped, then zap next child, and so forth
 			if(tempChild->status == CHILD_ALIVE){
@@ -346,6 +429,9 @@ int terminateReal(int pid,long returnStatus){
 		}
 			//quit(returnStatus); // Phase 1 must be notified process has quit.
 	}else{
+		
+		//This occurs when the current process has no children.
+		//Set the ststus of the process appropriately
 		pDebug(2," <- terminateReal(): pid[%d] has 0 children\n",pid);
 		ProcTable[pid%MAXPROC].returnStatus = returnStatus;
 		ProcTable[pid%MAXPROC].status = CHILD_DEAD;
@@ -361,7 +447,7 @@ int terminateReal(int pid,long returnStatus){
 }
 
 /*****************************************************************************
- *	Routine:  terminate
+ *	Routine:  semCreate
  *
  *  Creates a user-level semaphore.p ProcTable[pid%50].childList.count
  *  Input
@@ -384,9 +470,22 @@ void semCreate(systemArgs *args){
 //TODO: If zapped;
 }
 
+/*****************************************************************************
+ *	Routine:  semCreateReal
+ *
+ *  Creates a user-level semaphore.p ProcTable[pid%50].childList.count
+ *  Input
+ *  	Initial Value of the semaphore that is being created
+ *	Output
+ *		The return value is the id of the semaphore created
+ *****************************************************************************/
 int semCreateReal(int initialVal){
 	pDebug(1,"semCreateReal(): initialVal = [%d]\n",initialVal);
 	int returnVal = -1;
+	
+	//initialize all the values of the sem created
+	//this includes a mailbox of the size of the 
+	//semaphore that is being used
 	for(i=0;i<MAXSEMS;i++){
 		if(SemTable[i].mBoxID == -1){
 			SemTable[i].initialVal = initialVal;
@@ -420,6 +519,13 @@ void semP(systemArgs *args){
 		args->arg4 = (void*)(long)-1;
 }
 
+/*****************************************************************************
+ *	Routine:  semPReal
+ *
+ *  Performs a “P” operation on a semaphore.
+ *  Input
+ * 		 The id of the semaphore to perform the p operation on
+ *****************************************************************************/
 void semPReal(int semID){
 	int recieveResult;
 	
@@ -430,16 +536,21 @@ void semPReal(int semID){
 	SemTable[semID].processPID = getpid()%MAXPROC;
 	// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
 
+	//The semaphore is not currently in use, do a send to the mailbox in the semaphore
+	//So that the process performing the p operation sets the mutex to in use
 	if(SemTable[semID].currentVal <= 0){
 		MboxSend(SemTable[semID].mBoxID,&recieveResult,0);
 		// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.
 		if(SemTable[semID].mBoxID == -1){
+			//check if the process was zapped
 			if(isZapped())
 				terminateReal(getpid()%MAXPROC,0);
 			else
 				terminateReal(getpid()%MAXPROC,1);	
 		}
 	}
+	
+	//The semaphore is currently in use so we will block here
 	if(SemTable[semID].currentVal >=0){
 	// If we are going to block on this send, update process status to blocked for semFree()
 	if(SemTable[semID].currentVal+1 >= SemTable[semID].initialVal){
@@ -451,9 +562,7 @@ void semPReal(int semID){
 	if(debugVal>2){
 		ds3();
 		dp3();
-	}
-// If MboxID == -1: The semaphore has benn released, and this child cannot continue to execute.			
-		
+	}		
 		pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 	}else{
 			
@@ -483,6 +592,13 @@ void semV(systemArgs *args){
 		args->arg4 = (void*)(long)-1;
 }
 
+/*****************************************************************************
+ *	Routine:  semVReal
+ *
+ *  Performs a “v” operation on a semaphore.
+ *  Input
+ * 		 The id of the semaphore to perform the v operation on
+ *****************************************************************************/
 void semVReal(int semID){
 	int sendResult;
 		
@@ -491,6 +607,9 @@ void semVReal(int semID){
 	
 	pDebug(1," <- semVReal(): -START- CurrentPID[%d] semMBoxID[%d] sem.currentVal = [%d] sem.initialVal = [%d]\n",getpid()%MAXPROC,SemTable[semID].mBoxID,SemTable[semID].currentVal,SemTable[semID].initialVal);
 	SemTable[semID].processPID = getpid()%MAXPROC;
+	
+	//check to see if the process will be blocked on the v process of not
+	//set pvStatus appropriately based on this
 	if(SemTable[semID].currentVal <= SemTable[semID].initialVal){
 		if (SemTable[semID].blockList.count>0){
 			procPtr tempProc = pop(&SemTable[semID].blockList);
@@ -502,6 +621,8 @@ void semVReal(int semID){
 		ds3();
 		dp3();
 	}
+	
+	//perform the receive which is the equivalent of decrementing the semaphore.
 	MboxReceive(SemTable[semID].mBoxID,&sendResult,0);
 	pDebug(1," <- semVReal(): After MboxReceive(SemTable[semID].mBoxID,&sendResult,0);");
 	putUserMode();
@@ -536,20 +657,32 @@ void semFree(systemArgs *args){
 	putUserMode();
 }
 
+/*****************************************************************************
+ *	Routine:  semFreeReal
+ *
+ *  Frees a semaphore.
+ *  Input
+ *  semID: Id of the semaphore that is going to be freed
+ *  Output
+ *  	-1 if semaphore handle is invalid, 1 if there were processes 
+ * 		blocked on the semaphore, 0 otherwise.
+ *  Any process waiting on a semaphore when it is freed should be terminated
+ *  using the equivalent of the Terminate system call.
+ *****************************************************************************/
 int semFreeReal(int semID){
 	int returnVal = 0;
 	pDebug(1," <- semFreeReal()\n");
+	
+	//there are no processes in the blocked list, return 0
 	if(SemTable[semID].blockList.count==0)
 		returnVal = 0;
 	else{ // TODO : TERMINATE REAL!!!!!
-	//	while(SemTable[semID].blockList.count >0){	
-	//		terminateReal(pop(&SemTable[semID].blockList)->pid,-3);
-			//zap(pop(&SemTable[semID].blockList)->pid);
-	//	}
+		//Return 1, there are blocked processes on this sem still
 		returnVal = 1;
 	}
 
-	
+	//Now that the semaphore is no longer in use, set all the variables in the 
+	//sem to indicate this
 	int mBoxID = SemTable[semID].mBoxID;
 	SemTable[semID].mBoxID = -1; // use this val in resume of blocked P to termin children if freeing semaphore
 	SemTable[semID].initialVal = -1;
@@ -611,9 +744,14 @@ void getPID (systemArgs *args){
  *      Initialize systemCallVec calls
  *****************************************************************************/
  void intializeSysCalls(){
+	 
+	 //Start by initially setting all the syscall vecs to a nullsys
     for (int i = 0; i < MAXSYSCALLS; i++) {
         systemCallVec[i] = nullsys3;
     }
+	
+	//set the appropriate system call handlers to their place in the system vector
+	//that way the appropriate error handler is called when an interrupt occurs
 	systemCallVec[SYS_SPAWN] = spawn;
 	systemCallVec[SYS_WAIT] = waitNotLinux;
 	systemCallVec[SYS_TERMINATE] = terminate;
@@ -626,6 +764,11 @@ void getPID (systemArgs *args){
 	systemCallVec[SYS_SEMFREE] = semFree;
  } 
 
+ /*****************************************************************************
+ *      Initialize nullsys system call handler calls
+ *		Input:
+ *			Array of arguments
+ *****************************************************************************/
 void nullsys3(systemArgs *args) {
     USLOSS_Console("nullsys3(): Invalid syscall %d. Halting...\n", args->number);
 	//Terminate instead of USLOSS_Halt(1);
@@ -643,11 +786,19 @@ int pDebug(int level, char *fmt, ...) {
 	 return 1;
 } /* pDebug */
 
+/*****************************************************************************
+ *     putUserMode - puts the OS into usermode with the appropriate call to 
+ *		psrSet
+ *****************************************************************************/
 void putUserMode(){
 	int result = USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
 	pDebug(3," <- putUserMode(): Result = %d\n",result);
 }
 
+/*****************************************************************************
+ *     dp3 - Used to output a formatted version of the process table to the 
+ *		usloss console
+ *****************************************************************************/
 void dp3(){
     USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
     USLOSS_Console(" PID  ParentPID Priority  Status PVstatus #kids  Name        mBoxID\n");
@@ -662,6 +813,10 @@ void dp3(){
     USLOSS_Console("------------------------------------------------------------\n");    
 }
 
+/*****************************************************************************
+ *     ds3 - Used to output a formatted version of the semaphore table to the 
+ *		usloss console
+ *****************************************************************************/
 void ds3(){
     USLOSS_Console("\n------------------------SEM TABLE-----------------------\n");
     USLOSS_Console(" initialVal  currentVal mBoxID  processPID\n");
