@@ -61,7 +61,6 @@ void printQ(MinQueue q) {
 void push(MinQueue *heap, int priority, struct procTable* data) {
 	if (heap->count != heap->size) {
 		/* Build temp node */
-		Node *tempPtr = &heap->nodes[heap->count];
 		Node *tempPtr = getNextNode(heap);
 		tempPtr->data = data;
 		tempPtr->priority = priority;
@@ -157,8 +156,6 @@ Node* getNextNode(MinQueue *heap) {
  /*
 int main() {
 	MinQueue mHeap;
-	mHeap.count = 0;
-	mHeap.size = 8;
 	intialize_queue2(&mHeap);
 	int i, random;
 
@@ -166,8 +163,6 @@ int main() {
 		printf("%d=mem[%p] ", i, &mHeap.nodes[i]);
 	printf("\n\n");
 
-// Manual Push
-	push(&mHeap, 5, "5");
 // Breaks in test01 phase1
 	 push(&mHeap, 6, "6");
 	 push(&mHeap, 1, "1");
@@ -179,9 +174,6 @@ int main() {
 
 // Breaks in test20 phase1
 	push(&mHeap, 6, "6");
-	push(&mHeap, 4, "4");
-	push(&mHeap, 3, "3");
-	push(&mHeap, 7, "7");
 	push(&mHeap, 1, "1");
 	printf("%s\n", pop(&mHeap));
 	push(&mHeap, 2, "2");
@@ -189,26 +181,12 @@ int main() {
 	push(&mHeap, 4, "4");
 	printf("%s\n", pop(&mHeap));
 	push(&mHeap, 1, "1");
-	push(&mHeap, 1, "after1");
 	printf("%s\n", pop(&mHeap));
 	printf("%s\n", pop(&mHeap));
 	push(&mHeap, 1, "1");
 	printf("%s\n", pop(&mHeap));
 	printf("%s\n", pop(&mHeap));
 
-// Test remove
-	if (remove_data(&mHeap, "8"))
-		printf("remove_data(): Deleted\n");
-	else
-		printf("remove_data(): Not Found\n");
-	if (remove_data(&mHeap, "7"))
-		printf("remove_data(): Deleted\n");
-	else
-		printf("remove_data(): Not Found\n");
-	if (remove_data(&mHeap, "1"))
-		printf("remove_data(): Deleted\n");
-	else
-		printf("remove_data(): Not Found\n");
 // Manual Push
 	 push(&mHeap, 5, "5");
 	 push(&mHeap, 6, "6");
@@ -237,19 +215,12 @@ int main() {
 //		random = rand() % mHeap.size + 1;
 //		printf("i=[%d] random=[%d]\n", i, random);
 //		int priority = random;
-//		struct procTable* data = malloc(5);
 //		struct char* data = malloc(5);
 //		sprintf(data, "%d", priority);
 //		push(&mHeap, priority, data);
 //	}
 
 // Pop the list
-	printf("\nPOPPING\n");
-	while (mHeap.count > 0) {
-		struct procTable* value = pop(&mHeap);
-		printf("%s\n", value);
-		i++;
-	}
 	 printf("\nPOPPING\n");
 	 while (mHeap.count > 0) {
 	 char* value = pop(&mHeap);
