@@ -562,7 +562,11 @@ void semPReal(int semID){
 	if(debugVal>2){
 		ds3();
 		dp3();
+<<<<<<< HEAD
 	}		
+=======
+	}	
+>>>>>>> 9446f9f547332ece35cfd2276036bc0f1990f149
 		pDebug(1," <- semPReal(): -After MboxSend- (SemTable[semID].mBoxID,&recieveResult,0);\n");
 	}else{
 			

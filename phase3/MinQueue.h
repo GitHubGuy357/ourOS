@@ -27,6 +27,7 @@ void printQ(MinQueue q);
 void push(MinQueue *heap, int priority, struct procTable* data);
 struct procTable* pop(MinQueue *heap);
 void intialize_queue2(MinQueue *heap);
+Node* getNextNode(MinQueue *heap);
 
 #else
 

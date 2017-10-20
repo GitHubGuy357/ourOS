@@ -62,6 +62,7 @@ void push(MinQueue *heap, int priority, struct procTable* data) {
 	if (heap->count != heap->size) {
 		/* Build temp node */
 		Node *tempPtr = &heap->nodes[heap->count];
+		Node *tempPtr = getNextNode(heap);
 		tempPtr->data = data;
 		tempPtr->priority = priority;
 		tempPtr->next = NULL;
@@ -124,6 +125,33 @@ void intialize_queue2(MinQueue *heap) {
 }
 
 /****************************************************************************
+ * getFirstNull - Finds the first non used node
+ * INPUT: A min-heap.
+ * OUTPUT: Node*, pointing to first availible node.
+ * SIDEEFFECTS: None.
+ ****************************************************************************/
+Node* getNextNode(MinQueue *heap) {
+	int i, found;
+
+	// If topPtr is null, nothing is in queue, just reuturn first node.
+	if (heap->topPtr == NULL)
+		return &heap->nodes[0];
+
+	// For each node in array, check to see if it exists in topPtr chain, if not, return it to be used.
+	for (i = 0; i < MAXSIZE; i++) {
+		Node *tempPtr = heap->topPtr;
+		found = 0;
+		while (tempPtr != NULL && !found) {
+			if (tempPtr == &heap->nodes[i])
+				found = 1;
+			tempPtr = tempPtr->next;
+		}
+		if (!found)
+			return &heap->nodes[i];
+	}
+	return NULL;
+}
+/****************************************************************************
  * MAIN - For testing
  ****************************************************************************/
  /*
@@ -131,6 +159,7 @@ int main() {
 	MinQueue mHeap;
 	mHeap.count = 0;
 	mHeap.size = 8;
+	intialize_queue2(&mHeap);
 	int i, random;
 
 	for (i = 0; i < mHeap.size; i++)
@@ -139,13 +168,33 @@ int main() {
 
 // Manual Push
 	push(&mHeap, 5, "5");
+// Breaks in test01 phase1
+	 push(&mHeap, 6, "6");
+	 push(&mHeap, 1, "1");
+	 printf("%s\n",pop(&mHeap));
+	 push(&mHeap, 3, "3");
+	 push(&mHeap, 5, "5");
+	 printf("%s\n",pop(&mHeap));
+	 push(&mHeap, 1, "1");
+
+// Breaks in test20 phase1
 	push(&mHeap, 6, "6");
 	push(&mHeap, 4, "4");
 	push(&mHeap, 3, "3");
 	push(&mHeap, 7, "7");
+	push(&mHeap, 1, "1");
+	printf("%s\n", pop(&mHeap));
 	push(&mHeap, 2, "2");
+	push(&mHeap, 3, "3");
+	push(&mHeap, 4, "4");
+	printf("%s\n", pop(&mHeap));
 	push(&mHeap, 1, "1");
 	push(&mHeap, 1, "after1");
+	printf("%s\n", pop(&mHeap));
+	printf("%s\n", pop(&mHeap));
+	push(&mHeap, 1, "1");
+	printf("%s\n", pop(&mHeap));
+	printf("%s\n", pop(&mHeap));
 
 // Test remove
 	if (remove_data(&mHeap, "8"))
@@ -160,13 +209,36 @@ int main() {
 		printf("remove_data(): Deleted\n");
 	else
 		printf("remove_data(): Not Found\n");
+// Manual Push
+	 push(&mHeap, 5, "5");
+	 push(&mHeap, 6, "6");
+	 push(&mHeap, 4, "4");
+	 push(&mHeap, 3, "3");
+	 push(&mHeap, 7, "7");
+	 push(&mHeap, 2, "2");
+	 push(&mHeap, 1, "1");
+	 push(&mHeap, 1, "after1");
 
+// Test remove
+	 if (remove_data(&mHeap, "8"))
+	 printf("remove_data(): Deleted\n");
+	 else
+	 printf("remove_data(): Not Found\n");
+	 if (remove_data(&mHeap, "7"))
+	 printf("remove_data(): Deleted\n");
+	 else
+	 printf("remove_data(): Not Found\n");
+	 if (remove_data(&mHeap, "1"))
+	 printf("remove_data(): Deleted\n");
+	 else
+	 printf("remove_data(): Not Found\n");
 // Automated Push Test
 //	for (i = 0; i < mHeap.size; i++) {
 //		random = rand() % mHeap.size + 1;
 //		printf("i=[%d] random=[%d]\n", i, random);
 //		int priority = random;
 //		struct procTable* data = malloc(5);
+//		struct char* data = malloc(5);
 //		sprintf(data, "%d", priority);
 //		push(&mHeap, priority, data);
 //	}
@@ -178,6 +250,13 @@ int main() {
 		printf("%s\n", value);
 		i++;
 	}
+	 printf("\nPOPPING\n");
+	 while (mHeap.count > 0) {
+	 char* value = pop(&mHeap);
+	 printf("%s\n", value);
+	 i++;
+	 }
+
 	return 0;
 }
 */
