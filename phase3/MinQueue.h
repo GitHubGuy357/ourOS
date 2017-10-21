@@ -22,7 +22,7 @@ typedef struct Node {
 
 //Prototypes
 struct procTable* peek(MinQueue head);
-int remove_data(MinQueue *heap, int val_to_remove);
+int removeQ(MinQueue *heap, int val_to_remove);
 void printQ(MinQueue q);
 void push(MinQueue *heap, int priority, struct procTable* data);
 struct procTable* pop(MinQueue *heap);

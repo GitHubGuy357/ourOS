@@ -13,10 +13,10 @@ struct procTable* peek(MinQueue head) {
 }
 
 /****************************************************************************
- * remove_data - Finds matching val_to_remove, if not found returns 0
+ * removeQ - Finds matching val_to_remove, if not found returns 0
  * otherwise removes
  ****************************************************************************/
-int remove_data(MinQueue *heap, int val_to_remove) {
+int removeQ(MinQueue *heap, int val_to_remove) {
 	Node *current = heap->topPtr;
 	Node *previous = NULL;
 
