@@ -46,7 +46,6 @@ $(TESTS):	$(TARGET) p1.o
 clean:
 	rm -f $(COBJS) $(TARGET) test*.o test*.txt term* $(TESTS) \
 	libuser.o p1.o core
-	@if [ -d "testResults_ours" ]; then echo "Removing Folder: [testResults_ours]"; rm -rdf testResults_ours; else echo "Removing Folder: [testResults_ours] - NOT exist"; fi
 
 phase3.o:	sems.h
 
