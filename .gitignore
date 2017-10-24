@@ -2,9 +2,9 @@
 *.a
 test??
 *.tgz
-Makefile
 /usloss
 /our_results
 *.txt
 #kernel.h#
 resultsfile
+disk??
