@@ -20,7 +20,7 @@ HDRS = MinQueue.h phase1.h phase2.h phase3.h phase4.h libuser.h
 
 INCLUDE = ${PREFIX}/include
 
-CFLAGS = -Wall -g -std=gnu99 -I${INCLUDE} -I.
+CFLAGS = -Wall -g -std=gnu99 -I. -I${INCLUDE}
 
 UNAME := $(shell uname -s)
 
@@ -35,7 +35,7 @@ TESTS = test00 test01 test02 test03 test04 test05 test06 test07 test08 \
         test09 test10 test11 test12 test13 test14 test15 test16 test17 \
         test18 test19 test20 test21 test22 test23 test24 test25
 
-LIBS = -lusloss3.6 -l$(PHASE1LIB) -l$(PHASE2LIB)  -l$(PHASE3LIB)
+LIBS =  -l$(PHASE2LIB) -lusloss3.6  -l$(PHASE3LIB) -l$(PHASE2LIB) -l$(PHASE1LIB) -lphase4
 
 
 $(TARGET):	$(COBJS)
@@ -43,7 +43,7 @@ $(TARGET):	$(COBJS)
 
 $(TESTS):	$(TARGET) p1.o
 	$(CC) $(CFLAGS) -c $(TESTDIR)/$@.c
-	$(CC) $(LDFLAGS) -o $@ $@.o p1.o $(LIBS)
+	$(CC) $(LDFLAGS) -o $@ $(LIBS) $@.o $(LIBS) p1.o $(LIBS)
 
 clean:
 	rm -f $(COBJS) $(TARGET) test*.o test*.txt term* $(TESTS) \

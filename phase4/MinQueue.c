@@ -5,9 +5,11 @@
 
 
 #include "MinQueue.h"
-#include "phase2.h"
-#include "phase3.h"
-// Peek
+#include "phase4.h"
+
+/****************************************************************************
+ * peek - Returns data structure at top position
+ ****************************************************************************/
 struct procTable* peek(MinQueue head) {
 	return head.topPtr->data;
 }
@@ -16,6 +18,7 @@ struct procTable* peek(MinQueue head) {
  * removeQ - Finds matching val_to_remove, if not found returns 0
  * otherwise removes
  ****************************************************************************/
+ /*
 int removeQ(MinQueue *heap, int val_to_remove) {
 	Node *current = heap->topPtr;
 	Node *previous = NULL;
@@ -37,10 +40,11 @@ int removeQ(MinQueue *heap, int val_to_remove) {
 	} else
 		return 0;
 }
-
+*/
 /****************************************************************************
  * print_queue - Prints the queue to stdio
  ****************************************************************************/
+ /*
 void printQ(MinQueue q) {
 	printf("Process List: Count = [%d]\n",q.count);
 	// WHY DOES THIS POINTER PRINTING DOES NOT WORK??? FIRST ELEMENT SHOWS IN DATA CORRECTLY, NEVER PRINTS, PRINTS 1 LESS ELEMENT AND THATS IT
@@ -50,7 +54,7 @@ void printQ(MinQueue q) {
 		tmp = tmp->next;
 	}
 }
-
+*/
 /****************************************************************************
  * push - Pushes a value to the priority queue. If priority matches, it is added
  * to the end of that priority list.
@@ -58,6 +62,7 @@ void printQ(MinQueue q) {
  * OUTPUT: Returns the data held by priority, can be modified from struct procTable* to function for ready list.
  * SIDEEFFECTS: Alters the incoming heap.
  ****************************************************************************/
+ 
 void push(MinQueue *heap, int priority, struct procTable* data) {
 	if (heap->count != heap->size) {
 		/* Build temp node */
