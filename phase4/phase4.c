@@ -1,3 +1,4 @@
+
 #include <usloss.h>
 #include <usyscall.h>
 #include "libuser.h"
@@ -8,7 +9,7 @@
 #include "providedPrototypes.h"
 #include <stdlib.h> /* needed for atoi() */
 #include <stdio.h>
-void (*systemCallVec[MAXSYSCALLS])(systemArgs *args);
+void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
 int 	mainSemaphore;
 int     debugVal = 1;
 static int	ClockDriver(char *);
@@ -93,6 +94,8 @@ void start3(void){
 }
 
 
+
+
 /*************************************************************************
  *
  *                           Phase 4 Entry Point
@@ -101,6 +104,7 @@ void start3(void){
 //int start4(char * name){
 //	return -1;
 //}
+
 
 
 /*************************************************************************
@@ -283,7 +287,7 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
 } 
 
 
-void sleep(systemArgs *args){
+void sleep(USLOSS_Sysargs *args){
 	pDebug(1," <- sleep(): start \n");
 	
 }
@@ -292,7 +296,7 @@ int sleepReal(){
 	return -1;
 }
 
-void diskRead(systemArgs *args){
+void diskRead(USLOSS_Sysargs *args){
 		pDebug(1," <- diskRead(): start \n");
 	
 }
@@ -301,7 +305,7 @@ int diskReadReal(){
 	return -1;
 }
 
-void diskWrite(systemArgs *args){
+void diskWrite(USLOSS_Sysargs *args){
 		pDebug(1," <- diskWrite(): start \n");
 }
 
@@ -309,7 +313,7 @@ int diskWriteReal(){
 	return -1;
 }
 
-void diskSize(systemArgs *args){
+void diskSize(USLOSS_Sysargs *args){
 		pDebug(1," <- diskSize(): start \n");	
 }
 
@@ -317,7 +321,7 @@ int diskSizeReal(){
 	return -1;
 }
 
-void termRead(systemArgs *args){
+void termRead(USLOSS_Sysargs *args){
 		pDebug(1," <- diskSizeReal(): start \n");
 	
 }
@@ -326,7 +330,7 @@ int termReadReal(){
 	return -1;
 }
 
-void termWrite(systemArgs *args){
+void termWrite(USLOSS_Sysargs *args){
 		pDebug(1," <- termWrite(): start \n");
 	
 }
@@ -384,7 +388,7 @@ static int ClockDriver(char *arg){
  *		Input:
  *			Array of arguments
  *****************************************************************************/
-void nullsys4(systemArgs *args) {
+void nullsys4(USLOSS_Sysargs *args) {
     USLOSS_Console("nullsys4(): Invalid syscall %d. Halting...\n", args->number);
 	// Terminate instead of USLOSS_Halt(1) from phase1
 	terminateReal(getpid());

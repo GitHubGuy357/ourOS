@@ -35,7 +35,10 @@ extern int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_max_size);
 extern int waitDevice(int type, int unit, int *status);
 
 /*  The USLOSS_Sysargs structure */
-typedef struct systemArgs
+
+/* This was the redeclartion I kept speaking about, Dr. Homer says its supposed to be commeted out. Explains alot. Cant have
+two included files defining same struct type.
+typedef struct USLOSS_Sysargs
 {
         int number;
         void *arg1;
@@ -43,9 +46,9 @@ typedef struct systemArgs
         void *arg3;
         void *arg4;
         void *arg5;
-} systemArgs;
+} USLOSS_Sysargs;
 
 // 
 extern void (*systemCallVec[])(systemArgs *args);
-
+*/
 #endif

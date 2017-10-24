@@ -5,6 +5,9 @@
 #ifndef _PHASE4_H
 #define _PHASE4_H
 #include "MinQueue.h"
+#include <usloss.h>
+#include <usyscall.h>
+#include "libuser.h"
 #include "phase1.h"
 #include "phase2.h"
 #include "phase3.h"
@@ -21,7 +24,7 @@
         USLOSS_Halt(1);  \
     }  \
 }
-extern void (*systemCallVec[MAXSYSCALLS])(systemArgs *args); // Added to compile with WRONG systemArgs, RIGHT? cant use USLOSS
+extern void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args); // Added to compile with WRONG USLOSS_Sysargs, RIGHT? cant use USLOSS
 /*
  * Function prototypes for this phase.
  */
@@ -38,20 +41,20 @@ extern  int  start4(char * name);
 int check_kernel_mode(char *procName);
 void putUserMode();
 int pDebug(int level, char *fmt, ...);
-void nullsys4(systemArgs *args);
+void nullsys4(USLOSS_Sysargs *args);
 
 // Sys call prototypes
-void sleep(systemArgs *args);
+void sleep(USLOSS_Sysargs *args);
 int sleepReal();
-void diskRead(systemArgs *args);
+void diskRead(USLOSS_Sysargs *args);
 int diskReadReal();
-void diskWrite(systemArgs *args);
+void diskWrite(USLOSS_Sysargs *args);
 int diskWriteReal();
-void diskSize(systemArgs *args);
+void diskSize(USLOSS_Sysargs *args);
 int diskSizeReal();
-void termRead(systemArgs *args);
+void termRead(USLOSS_Sysargs *args);
 int termReadReal();
-void termWrite(systemArgs *args);
+void termWrite(USLOSS_Sysargs *args);
 int termWriteReal();
 
 // Structures

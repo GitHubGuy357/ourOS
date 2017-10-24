@@ -52,7 +52,7 @@ clean:
 phase4.o:	
 
 submit: $(CSRCS) $(HDRS) Makefile
-	tar cvzf phase3.tgz $(CSRCS) $(HDRS) Makefile p1.c
+	tar cvzf phase4.tgz $(CSRCS) $(HDRS) Makefile p1.c
 
 all:
 	./makeall
