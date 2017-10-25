@@ -1,10 +1,9 @@
 *.o
 *.a
-test??
 *.tgz
-/usloss
-/our_results
+*.in
+*.out
 *.txt
-#kernel.h#
-resultsfile
+/testResults_ours
+/resultsfile
 disk??
