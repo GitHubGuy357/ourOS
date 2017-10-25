@@ -36,9 +36,10 @@ extern int waitDevice(int type, int unit, int *status);
 
 /*  The USLOSS_Sysargs structure */
 
-/* This was the redeclartion I kept speaking about, Dr. Homer says its supposed to be commeted out. Explains alot. Cant have
-two included files defining same struct type.
-typedef struct USLOSS_Sysargs
+// This was the redeclartion I kept speaking about, Dr. Homer says its supposed to be commeted out. Explains alot. Cant have
+//two included files defining same struct type.
+/*
+typedef struct systemArgs
 {
         int number;
         void *arg1;
@@ -46,7 +47,7 @@ typedef struct USLOSS_Sysargs
         void *arg3;
         void *arg4;
         void *arg5;
-} USLOSS_Sysargs;
+} systemArgs;
 
 // 
 extern void (*systemCallVec[])(systemArgs *args);

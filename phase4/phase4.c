@@ -93,20 +93,6 @@ void start3(void){
     
 }
 
-
-
-
-/*************************************************************************
- *
- *                           Phase 4 Entry Point
- *
- ************************************************************************/
-//int start4(char * name){
-//	return -1;
-//}
-
-
-
 /*************************************************************************
  *
  *                           System Calls
@@ -152,7 +138,17 @@ int Sleep(int seconds){
     return (long) sysArg.arg4;
 } /* end of Sleep */
 
-int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *status){
+void sleep(USLOSS_Sysargs *args){
+	pDebug(1," <- sleep(): start \n");
+	args->arg1 = (void*)(long)4;
+}
+
+int sleepReal(){
+	return -1;
+}
+
+
+
 /******************************************************************************
  *  Routine:  DiskRead
  *  Description: This is the call entry point for disk input.
@@ -166,6 +162,7 @@ int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *stat
  *  Return Value: 0 means success, -1 means error occurs
  *
 ******************************************************************************/
+int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *status){
     USLOSS_Sysargs sysArg;
     
     CHECKMODE;
@@ -180,6 +177,14 @@ int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *stat
     return (long) sysArg.arg4;
 } /* end of DiskRead */
 
+void diskRead(USLOSS_Sysargs *args){
+		pDebug(1," <- diskRead(): start \n");
+	
+}
+
+int diskReadReal(){
+	return -1;
+}
 
 /******************************************************************************
  *  Routine:  Sys_DiskWrite
@@ -208,6 +213,14 @@ int DiskWrite(void *dbuff, int track, int first, int sectors, int unit, int *sta
     return (long) sysArg.arg4;
 } /* end of DiskWrite */
 
+void diskWrite(USLOSS_Sysargs *args){
+		pDebug(1," <- diskWrite(): start \n");
+}
+
+int diskWriteReal(){
+	return -1;
+}
+
 /******************************************************************************
  *  Routine:  Sys_DiskSize
  *
@@ -233,6 +246,14 @@ int DiskSize(int unit, int *sector, int *track, int *disk){
 	*disk = (long) sysArg.arg3;
 	return (long) sysArg.arg4;
 } /* end of DiskSize */
+
+void diskSize(USLOSS_Sysargs *args){
+		pDebug(1," <- diskSize(): start \n");	
+}
+
+int diskSizeReal(){
+	return -1;
+}
 
 /******************************************************************************
  *  Routine:  TermRead
@@ -260,6 +281,15 @@ int TermRead(char *buff, int bsize, int unit_id, int *nread){
     return (long) sysArg.arg4;
 } 
 
+void termRead(USLOSS_Sysargs *args){
+		pDebug(1," <- diskSizeReal(): start \n");
+	
+}
+
+int termReadReal(){
+	return -1;
+}
+
 /******************************************************************************
  *  Routine:  TermWrite
  *
@@ -286,50 +316,6 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
     return (long) sysArg.arg4;
 } 
 
-
-void sleep(USLOSS_Sysargs *args){
-	pDebug(1," <- sleep(): start \n");
-	args->arg1 = (void*)(long)4;
-}
-
-int sleepReal(){
-	return -1;
-}
-
-void diskRead(USLOSS_Sysargs *args){
-		pDebug(1," <- diskRead(): start \n");
-	
-}
-
-int diskReadReal(){
-	return -1;
-}
-
-void diskWrite(USLOSS_Sysargs *args){
-		pDebug(1," <- diskWrite(): start \n");
-}
-
-int diskWriteReal(){
-	return -1;
-}
-
-void diskSize(USLOSS_Sysargs *args){
-		pDebug(1," <- diskSize(): start \n");	
-}
-
-int diskSizeReal(){
-	return -1;
-}
-
-void termRead(USLOSS_Sysargs *args){
-		pDebug(1," <- diskSizeReal(): start \n");
-	
-}
-
-int termReadReal(){
-	return -1;
-}
-
 void termWrite(USLOSS_Sysargs *args){
 		pDebug(1," <- termWrite(): start \n");
 	
@@ -338,6 +324,7 @@ void termWrite(USLOSS_Sysargs *args){
 int termWriteReal(){
 	return -1;
 }
+
 
 /*************************************************************************
 *
@@ -363,6 +350,7 @@ static int ClockDriver(char *arg){
     int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 	if (enableInturruptResult == 0)
 		USLOSS_Halt(1);
+	
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
@@ -376,6 +364,8 @@ static int ClockDriver(char *arg){
     }
 	return status;
 }
+
+
 /*************************************************************************
 *
 *                           UTILITIES
