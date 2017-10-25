@@ -44,21 +44,14 @@ void start3(void){
 	//Initialize the process table here
 	for (i=0;i<MAXPROC;i++){
 		ProcTable[i].pid = -1;
-		ProcTable[i].parentPID = -1;
-		ProcTable[i].priority = -1;
 		ProcTable[i].name[0] = '\0';
 		ProcTable[i].status = -1;
 		ProcTable[i].PVstatus = -1;
-		ProcTable[i].mBoxID = -1;
-		ProcTable[i].startFunc = NULL;// startFunction pointer to start
-		ProcTable[i].arg = NULL;
-		ProcTable[i].returnStatus = -1;
-		ProcTable[i].childCount = 0;
-		ProcTable[i].sleepAt = 0;
-		ProcTable[i].sleepDuration = 0;
-		ProcTable[i].sleepWakeAt = 0;
-		ProcTable[i].sem = semcreateReal(0);
-		intialize_queue2(&ProcTable[i].childList);
+		ProcTable[i].sleepAt = -1;
+		ProcTable[i].sleepDuration = -1;
+		ProcTable[i].sleepWakeAt = -1;
+		ProcTable[i].semID = semcreateReal(0);
+		ProcTable[i].mboxID = MboxCreate(0,0);
 	}
 	
 	//Initialize Sleeplist
@@ -195,7 +188,7 @@ int sleepReal(long sleepDuration){
 		ProcTable[getpid()%MAXPROC].sleepAt = sleepAt;
 		
 		push(&SleepList,sleepWakeAt,&ProcTable[getpid()%MAXPROC]);
-		sempReal(ProcTable[getpid()%MAXPROC].sem);
+		sempReal(ProcTable[getpid()%MAXPROC].semID);
 	}
 	return 0; // Success
 }
@@ -395,7 +388,7 @@ static int TermDriver(char *arg)
 }
 
 static int ClockDriver(char *arg){
-	pDebug(1," <- ClockDriver(): start \n");
+	pDebug(1,"<- ClockDriver(): start \n");
     int result;
     int status;
 	int time;
@@ -417,9 +410,9 @@ static int ClockDriver(char *arg){
 		 */
 		while (SleepList.count>0){
 			gettimeofdayReal(&time);
-			if(peek(SleepList)->sleepWakeAt > time){
+			if(peek(SleepList)->sleepWakeAt >= time){
 				procPtr temp = pop(&SleepList);
-				semvReal(temp->sem);
+				semvReal(temp->semID);
 			}
 			printf("ClockDriver(): time_of_day = [%d]\n",time); 
 		}
@@ -486,13 +479,13 @@ int check_kernel_mode(char *procName){
  *****************************************************************************/
 void dp4(){
     USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
-    USLOSS_Console(" PID  ParentPID Priority  Status PVstatus #kids  Name        mBoxID\n");
+    USLOSS_Console(" PID  Name Status  PVStatus mBoxID sleepAt  SleepDur. SleepWakeAt semID mBoxID\n");
     USLOSS_Console("------------------------------------------------------------\n");
 	for( i= 0; i< MAXPROC;i++){
 		if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
 			USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-6s[%-2d] %-3s[%-2d] %-2s[%-7s] %-2s[%-2d]\n"
-					,"",ProcTable[i].pid,"", ProcTable[i].parentPID,"",ProcTable[i].priority,"",
-					ProcTable[i].status,"",ProcTable[i].PVstatus,"",ProcTable[i].childCount,"",ProcTable[i].name,"",ProcTable[i].mBoxID);
+					,"",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",
+					ProcTable[i].PVstatus,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID);
 		}	  
 	}
     USLOSS_Console("------------------------------------------------------------\n");    

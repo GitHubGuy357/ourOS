@@ -62,21 +62,14 @@ int termWriteReal();
 typedef struct procTable *procPtr;
 typedef struct procTable {
     int pid;
-	int parentPID;
-	int priority;
 	char name[50];
 	int status;
 	int PVstatus;
-	int childCount;
-	MinQueue childList;
-	int mBoxID;
-    int (*startFunc)(char *);// startFunction pointer to start
-    char *arg;
-    long returnStatus;
 	long sleepAt;
 	long sleepDuration;
 	long sleepWakeAt;
-	int sem;
+	int semID;
+	int mboxID;
 } procTable; 
 
 #define ERR_INVALID             -1
