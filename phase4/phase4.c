@@ -31,14 +31,14 @@ void start3(void){
      * Check kernel mode here.
      */
 	check_kernel_mode("start3");
-	
+	intializeSysCalls();
     /*
      * Create clock device driver 
      * I am assuming a semaphore here for coordination.  A mailbox can
      * be used instead -- your choice.
      */
     mainSemaphore = semcreateReal(0);
-    clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
+    clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 4);
     if (clockPID < 0) {
 		USLOSS_Console("start3(): Can't create clock driver\n");
 		USLOSS_Halt(1);
@@ -58,7 +58,7 @@ void start3(void){
 
     for (i = 0; i < USLOSS_DISK_UNITS; i++) {
         sprintf(buf, "%d", i);
-        pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
+        pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 4);
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create term driver %d\n", i);
             USLOSS_Halt(1);
@@ -289,7 +289,7 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
 
 void sleep(USLOSS_Sysargs *args){
 	pDebug(1," <- sleep(): start \n");
-	args->arg1 = (long)4;
+	args->arg1 = (void*)(long)4;
 }
 
 int sleepReal(){

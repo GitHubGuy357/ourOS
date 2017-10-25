@@ -38,6 +38,7 @@ extern  int  TermWrite(char *buffer, int bufferSize, int unitID, int *numCharsRe
 extern  int  start4(char * name);
 
 // More prototypes
+void intializeSysCalls();
 int check_kernel_mode(char *procName);
 void putUserMode();
 int pDebug(int level, char *fmt, ...);
