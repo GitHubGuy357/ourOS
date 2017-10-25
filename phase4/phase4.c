@@ -289,7 +289,7 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
 
 void sleep(USLOSS_Sysargs *args){
 	pDebug(1," <- sleep(): start \n");
-	
+	args->arg1 = (long)4;
 }
 
 int sleepReal(){
