@@ -9,12 +9,17 @@
 #include "providedPrototypes.h"
 #include <stdlib.h> /* needed for atoi() */
 #include <stdio.h>
+
+int     debugVal = 1; // 0 == off to 3 == most debug info
+
 void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
 int 	mainSemaphore;
-int     debugVal = 1;
+int		i;
 static int	ClockDriver(char *);
 static int	DiskDriver(char *);
 static int	TermDriver(char *);
+procTable ProcTable[MAXPROC];
+MinQueue SleepList;
 
 void start3(void){
 	pDebug(1," <- start3(): start\n");
@@ -31,14 +36,45 @@ void start3(void){
      * Check kernel mode here.
      */
 	check_kernel_mode("start3");
-	intializeSysCalls();
+	
+	
+	/*****************************************************
+	*             Initialize Phase 4 data structures
+	*****************************************************/
+	//Initialize the process table here
+	for (i=0;i<MAXPROC;i++){
+		ProcTable[i].pid = -1;
+		ProcTable[i].parentPID = -1;
+		ProcTable[i].priority = -1;
+		ProcTable[i].name[0] = '\0';
+		ProcTable[i].status = -1;
+		ProcTable[i].PVstatus = -1;
+		ProcTable[i].mBoxID = -1;
+		ProcTable[i].startFunc = NULL;// startFunction pointer to start
+		ProcTable[i].arg = NULL;
+		ProcTable[i].returnStatus = -1;
+		ProcTable[i].childCount = 0;
+		ProcTable[i].sleepAt = 0;
+		ProcTable[i].sleepDuration = 0;
+		ProcTable[i].sleepWakeAt = 0;
+		ProcTable[i].sem = semcreateReal(0);
+		intialize_queue2(&ProcTable[i].childList);
+	}
+	
+	//Initialize Sleeplist
+		intialize_queue2(&SleepList);
+		
+	//Initialize SystemCalls
+		intializeSysCalls();
+		
+		
     /*
      * Create clock device driver 
      * I am assuming a semaphore here for coordination.  A mailbox can
      * be used instead -- your choice.
      */
     mainSemaphore = semcreateReal(0);
-    clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 4);
+    clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
 		USLOSS_Console("start3(): Can't create clock driver\n");
 		USLOSS_Halt(1);
@@ -58,7 +94,7 @@ void start3(void){
 
     for (i = 0; i < USLOSS_DISK_UNITS; i++) {
         sprintf(buf, "%d", i);
-        pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 4);
+        pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create term driver %d\n", i);
             USLOSS_Halt(1);
@@ -105,9 +141,9 @@ void start3(void){
  void intializeSysCalls(){
 	 
 	// Start by initially setting all the syscall vecs to a nullsys4
-    for (int i = 0; i < MAXSYSCALLS; i++) {
-        systemCallVec[i] = nullsys4;
-    }
+	//  for (int i = 0; i < MAXSYSCALLS; i++) {
+	//      systemCallVec[i] = nullsys4;
+	// }
 	
 	// set the appropriate system call handlers to their place in the system vector
 	// that way the appropriate error handler is called when an interrupt occurs
@@ -117,7 +153,6 @@ void start3(void){
 	systemCallVec[SYS_DISKSIZE] = diskSize;
 	systemCallVec[SYS_TERMREAD] = termRead;
 	systemCallVec[SYS_TERMWRITE] = termWrite;
-
  } 
  
 /******************************************************************************
@@ -129,6 +164,7 @@ void start3(void){
  *
  *****************************************************************************/
 int Sleep(int seconds){
+	pDebug(1," <- Sleep(): start \n");
     USLOSS_Sysargs sysArg;
     
     CHECKMODE;
@@ -140,11 +176,28 @@ int Sleep(int seconds){
 
 void sleep(USLOSS_Sysargs *args){
 	pDebug(1," <- sleep(): start \n");
-	args->arg1 = (void*)(long)4;
+	int returnVal = sleepReal((long)args->arg1);
+	args->arg1 = (void*)(long)returnVal;
 }
 
-int sleepReal(){
-	return -1;
+int sleepReal(long sleepDuration){
+	pDebug(1," <- sleepReal(): start \n");
+	if(sleepDuration < 0)
+		return -1; // Fail
+	else{
+		int sleepAt;
+		gettimeofdayReal(&sleepAt);
+		int sleepWakeAt = sleepAt + sleepDuration;
+		
+		ProcTable[getpid()%MAXPROC].pid = getpid();
+		ProcTable[getpid()%MAXPROC].sleepDuration = sleepDuration;
+		ProcTable[getpid()%MAXPROC].sleepWakeAt = sleepWakeAt;
+		ProcTable[getpid()%MAXPROC].sleepAt = sleepAt;
+		
+		push(&SleepList,sleepWakeAt,&ProcTable[getpid()%MAXPROC]);
+		sempReal(ProcTable[getpid()%MAXPROC].sem);
+	}
+	return 0; // Success
 }
 
 
@@ -342,13 +395,14 @@ static int TermDriver(char *arg)
 }
 
 static int ClockDriver(char *arg){
+	pDebug(1," <- ClockDriver(): start \n");
     int result;
     int status;
-
+	int time;
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
     int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-	if (enableInturruptResult == 0)
+	if (enableInturruptResult == 1)
 		USLOSS_Halt(1);
 	
     // Infinite loop until we are zap'd
@@ -356,12 +410,21 @@ static int ClockDriver(char *arg){
 		result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
 		if (result != 0) {
 			return 0;
+		}
+		/*
+		 * Compute the current time and wake up any processes
+		 * whose time has come.
+		 */
+		while (SleepList.count>0){
+			gettimeofdayReal(&time);
+			if(peek(SleepList)->sleepWakeAt > time){
+				procPtr temp = pop(&SleepList);
+				semvReal(temp->sem);
+			}
+			printf("ClockDriver(): time_of_day = [%d]\n",time); 
+		}
 	}
-	/*
-	 * Compute the current time and wake up any processes
-	 * whose time has come.
-	 */
-    }
+	pDebug(1," <- ClockDriver(): end \n");
 	return status;
 }
 
@@ -416,3 +479,21 @@ int check_kernel_mode(char *procName){
     }else
         return 1;
 } /* check_kernel_mode */
+
+/*****************************************************************************
+ *     dp4 - Used to output a formatted version of the process table to the 
+ *		usloss console
+ *****************************************************************************/
+void dp4(){
+    USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
+    USLOSS_Console(" PID  ParentPID Priority  Status PVstatus #kids  Name        mBoxID\n");
+    USLOSS_Console("------------------------------------------------------------\n");
+	for( i= 0; i< MAXPROC;i++){
+		if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-6s[%-2d] %-3s[%-2d] %-2s[%-7s] %-2s[%-2d]\n"
+					,"",ProcTable[i].pid,"", ProcTable[i].parentPID,"",ProcTable[i].priority,"",
+					ProcTable[i].status,"",ProcTable[i].PVstatus,"",ProcTable[i].childCount,"",ProcTable[i].name,"",ProcTable[i].mBoxID);
+		}	  
+	}
+    USLOSS_Console("------------------------------------------------------------\n");    
+}

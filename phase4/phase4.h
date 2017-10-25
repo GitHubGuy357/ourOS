@@ -73,6 +73,10 @@ typedef struct procTable {
     int (*startFunc)(char *);// startFunction pointer to start
     char *arg;
     long returnStatus;
+	long sleepAt;
+	long sleepDuration;
+	long sleepWakeAt;
+	int sem;
 } procTable; 
 
 #define ERR_INVALID             -1
