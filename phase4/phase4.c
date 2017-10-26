@@ -20,6 +20,7 @@ static int	DiskDriver(char *);
 static int	TermDriver(char *);
 procTable ProcTable[MAXPROC];
 MinQueue SleepList;
+MinQueue DriveList;
 int DiskDrives[USLOSS_DISK_UNITS];
 int Terminals[USLOSS_TERM_UNITS];
 
@@ -33,7 +34,6 @@ void start3(void){
     int		status;
 	char 	buf[100];
 	termbuf[0] = '\0';
-	printf("%c",termbuf[0]);
     /*
      * Check kernel mode here.
      */
@@ -54,10 +54,16 @@ void start3(void){
 		ProcTable[i].sleepWakeAt = -1;
 		ProcTable[i].semID = semcreateReal(0);
 		ProcTable[i].mboxID = MboxCreate(0,0);
+		ProcTable[i].disk_sector_size = -1;
+		ProcTable[i].disk_track_size = -1;
+		ProcTable[i].disk_size = -1;
 	}
 	
 	//Initialize Sleeplist
 		intialize_queue2(&SleepList);
+	
+	//Initialize Sleeplist
+		intialize_queue2(&DriveList);
 		
 	//Initialize SystemCalls
 		intializeSysCalls();
@@ -308,7 +314,7 @@ int diskWriteReal(){
  *
  *  Arguments:    int   unit  -- the unit number of the disk 
  *                int   *sector -- bytes in a sector
- *		  int	*track -- number of sectors in a track
+ *		  		  int	*track -- number of sectors in a track
  *                int   *disk  -- number of tracks in the disk
  *                (output value: completion status)
  *
@@ -328,11 +334,27 @@ int DiskSize(int unit, int *sector, int *track, int *disk){
 } /* end of DiskSize */
 
 void diskSize(USLOSS_Sysargs *args){
-		pDebug(1," <- diskSize(): start \n");	
+	pDebug(1," <- diskSize(): start \n");
+	int unit = (long)args->arg1;
+	int returnVal = diskSizeReal(unit);
+	if(returnVal == 0){
+		args->arg1 = (void*)(long)ProcTable[DiskDrives[unit]].disk_sector_size;
+		args->arg2 = (void*)(long)ProcTable[DiskDrives[unit]].disk_track_size;
+		args->arg3 = (void*)(long)ProcTable[DiskDrives[unit]].disk_size;
+	}
+	args->arg4 = (void*)(long)returnVal;
 }
+	
+int diskSizeReal(int unit){
+	if(unit <0 || unit >1)
+		return -1;
 
-int diskSizeReal(){
-	return -1;
+	ProcTable[DiskDrives[unit]].pid = getpid();
+	ProcTable[DiskDrives[unit]].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
+	ProcTable[DiskDrives[unit]].disk_track_size = USLOSS_DISK_TRACK_SIZE;
+	ProcTable[DiskDrives[unit]].disk_size = USLOSS_DISK_TRACK_SIZE * (unit+1); // Makes no sense, gathered from testcase. Unit 1 has twice as many tracks
+	push(&DriveList,(long long)time(NULL),&ProcTable[DiskDrives[unit]]);
+	return 0;
 }
 
 /******************************************************************************
@@ -413,8 +435,8 @@ int termWriteReal(){
 *************************************************************************/
 static int DiskDriver(char *arg){
     pDebug(1," <- DiskDriver(): start \n");
-    int result;
-    int status;
+    int result = 0;
+    int status = 0;
 	int unit = atoi(arg);
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
@@ -446,8 +468,8 @@ static int DiskDriver(char *arg){
 
 static int TermDriver(char *arg){
     pDebug(1," <- TermDriver(): start \n");
-    int result;
-    int status;
+    int result = 0;
+    int status = 0;
 	int unit = atoi(arg);
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);

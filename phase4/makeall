@@ -9,23 +9,48 @@
 
 input_folder="$(pwd)/testcases"
 output_folder="$(pwd)/testResults_ours"
+
+skipped=""
+skipped_count=0
+compiled=""
+compiled_count=0
+compiled_fail=""
+compiled_fail_count=0
+
 mkdir -p $output_folder
+echo -e "\n"
 
 for entry in "${input_folder}"/*
 do
 	filename=$(basename "$entry")
     extension="${filename##*.}"
+	filename="${filename%.*}"
 	if [ $extension = "c" ]; then
-		filename="${filename%.*}"
 		#echo "Entry=$entry FileName=$filename Extension=$extension"
 		resultfile="$output_folder/$filename.txt"
-		echo -e "\nMaking...$filename"
+		echo -e "Making...$filename"
 		make $filename
 		if [ -e "$filename" ]; then
 			./$filename > $resultfile
-			echo "Writing run of $filename to $resultfile"
+			if [ $? -eq 0 ];then
+				echo -e "Success: Writing results of $filename to $resultfile...\n"
+				compiled+="$filename.$extension | "
+				(( compiled_count++ ))
+			else
+				rm $resultfile
+				echo -e "Failed: File $filename unable to compile...\n"
+				compiled_fail+="$filename.$extension | "
+				(( compiled_fail_count++ ))
+			fi
 		fi
 	else
-		echo "$extension skipped."
+		skipped+="$filename.$extension | "
+		(( skipped_count++ ))
 	fi
 done
+
+output="Compile Results:\n\n"
+output="${output} Compiled: ${compiled_count}\n   ${compiled}\n"
+output="${output} Compile Fail: ${compiled_fail_count}\n   ${compiled_fail}\n"
+output="${output} Skipped: ${skipped_count}\n   ${skipped}\n"
+printf "$output\n"

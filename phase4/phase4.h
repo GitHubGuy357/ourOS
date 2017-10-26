@@ -47,13 +47,13 @@ void nullsys4(USLOSS_Sysargs *args);
 
 // Sys call prototypes
 void sleep(USLOSS_Sysargs *args);
-int sleepReal();
+int sleepReal(long sleepDuration);
 void diskRead(USLOSS_Sysargs *args);
 int diskReadReal();
 void diskWrite(USLOSS_Sysargs *args);
 int diskWriteReal();
 void diskSize(USLOSS_Sysargs *args);
-int diskSizeReal();
+int diskSizeReal(int unit);
 void termRead(USLOSS_Sysargs *args);
 int termReadReal();
 void termWrite(USLOSS_Sysargs *args);
@@ -71,6 +71,9 @@ typedef struct procTable {
 	long sleepWakeAt;
 	int semID;
 	int mboxID;
+	int disk_sector_size;
+	int disk_track_size; 
+	int disk_size;
 } procTable; 
 
 #define ERR_INVALID             -1

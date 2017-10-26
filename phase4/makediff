@@ -35,6 +35,8 @@ match_not=""
 match_not_count=0
 missing=""
 missing_count=0
+skipped=""
+skipped_count=0
 
 if [ ! -d "$input_folder_left" ]; then
   echo "Test Input Folder Not Found"
@@ -43,36 +45,38 @@ fi
 
 mkdir -p $overview_file_folder
 
-echo -e "\nWriting testcase results to '$raw_file_result'"
-echo "Writing overview to '$overview_file_name'"
-for entry in "./testcases"/*
+echo -e "Writing testcase results to '$raw_file_result'"
+echo -e "Writing overview to '$overview_file_name'"
+for entry in "$input_folder_left"/*
 do
     filename=$(basename "$entry")
     extension="${filename##*.}"
     filename="${filename%.*}"
-	if [ $extension = "c" ]; then
+	if [ $extension = "txt" ]; then
 		if [ -e "$input_folder_right/$filename$ext" ]; then
 			diff "$input_folder_left/$filename$ext" "$input_folder_right/$filename$ext" > "$raw_file_result"
 			if [ $? -eq 0 ];then
-				match="${match}  ${filename} ----MATCH----\n"
+				match="${match}   ${filename} ----MATCH----\n"
 				(( match_count++ ))
 			else
-				match_not="${match_not}  ${filename} ----NOT MATCH----\n"
+				match_not="${match_not}   ${filename} ----NOT MATCH----\n"
 				(( match_not_count++ ))
 			fi
 		else
-			missing+="  $filename$ext\n"
+			missing+="   $filename$ext\n"
 			(( missing_count++ ))
 		fi
 	else
-		echo "Extension $extension skipped."
+		skipped+=" $filename |"
+		(( skipped_count++ ))
 	fi
 done
 
-output=""
-output="${output}\nMatchingCount: ${match_count}\n${match}"
-output="${output}\nMismatchCount: ${match_not_count}\n${match_not}"
-output="${output}\nMissingCount: ${missing_count}\n${missing}"
+output="\nResults:\n"
+output="${output}\n Matching Count: ${match_count}\n${match}"
+output="${output}\n Mismatch Count: ${match_not_count}\n${match_not}"
+output="${output}\n Missing Count: ${missing_count}\n${missing}"
+output="${output}\n Skipped: ${skipped_count}\n  ${skipped}\n\n"
 printf "$output"
 printf "$output" > ${overview_file_name}
 #printf "\nMatching Count: $match_count\n$match"

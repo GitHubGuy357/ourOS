@@ -56,8 +56,8 @@ submit: $(CSRCS) $(HDRS) Makefile
 	tar cvzf phase4.tgz $(CSRCS) $(HDRS) Makefile p1.c
 
 all:
-	./makeall
-	./makediff
+	@./makeall
+	@./makediff
 
 diff:
-	./makediff
+	@./makediff
