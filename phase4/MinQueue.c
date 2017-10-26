@@ -44,17 +44,17 @@ int removeQ(MinQueue *heap, int val_to_remove) {
 /****************************************************************************
  * print_queue - Prints the queue to stdio
  ****************************************************************************/
- /*
+ 
 void printQ(MinQueue q) {
 	printf("Process List: Count = [%d]\n",q.count);
 	// WHY DOES THIS POINTER PRINTING DOES NOT WORK??? FIRST ELEMENT SHOWS IN DATA CORRECTLY, NEVER PRINTS, PRINTS 1 LESS ELEMENT AND THATS IT
 	Node *tmp = q.topPtr;
 	while (tmp != NULL) {
-		printf(" ->Pid:[%d], Name:[%s] Status:[%d]\n", tmp->data->pid, tmp->data->name, tmp->data->status);
+		printf(" ->Pid:[%ld] SleepAt:[%ld] WakeAt:[%ld]\n", (long)tmp->data->pid, tmp->data->sleepAt, tmp->data->sleepWakeAt);
 		tmp = tmp->next;
 	}
 }
-*/
+
 /****************************************************************************
  * push - Pushes a value to the priority queue. If priority matches, it is added
  * to the end of that priority list.

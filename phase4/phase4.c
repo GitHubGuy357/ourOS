@@ -10,7 +10,7 @@
 #include <stdlib.h> /* needed for atoi() */
 #include <stdio.h>
 
-int     debugVal = 1; // 0 == off to 3 == most debug info
+int     debugVal = 0; // 0 == off to 3 == most debug info
 
 void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
 int 	mainSemaphore;
@@ -20,6 +20,8 @@ static int	DiskDriver(char *);
 static int	TermDriver(char *);
 procTable ProcTable[MAXPROC];
 MinQueue SleepList;
+int DiskDrives[USLOSS_DISK_UNITS];
+int Terminals[USLOSS_TERM_UNITS];
 
 void start3(void){
 	pDebug(1," <- start3(): start\n");
@@ -87,11 +89,14 @@ void start3(void){
 
     for (i = 0; i < USLOSS_DISK_UNITS; i++) {
         sprintf(buf, "%d", i);
+		sprintf(name, "DiskDriver %d", i);
         pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
+		DiskDrives[i] = pid;
         if (pid < 0) {
-            USLOSS_Console("start3(): Can't create term driver %d\n", i);
+            USLOSS_Console("start3(): Can't create disk driver %d\n", i);
             USLOSS_Halt(1);
         }
+		sempReal(mainSemaphore);
     }
 
     // May be other stuff to do here before going on to terminal drivers
@@ -99,7 +104,17 @@ void start3(void){
     /*
      * Create terminal device drivers.
      */
-
+    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+        sprintf(buf, "%d", i);
+		sprintf(name, "TermDriver %d", i);
+        pid = fork1(name, TermDriver, buf, USLOSS_MIN_STACK, 2);
+		Terminals[i] = pid;
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term driver %d\n", i);
+            USLOSS_Halt(1);
+        }
+		sempReal(mainSemaphore);
+    }
 
     /*
      * Create first user-level process and wait for it to finish.
@@ -115,8 +130,28 @@ void start3(void){
     /*
      * Zap the device drivers
      */
-    zap(clockPID);  // clock driver
+	//dumpProcesses();
+	//dp4();
+	// zap clock driver
+    zap(clockPID);  
+	
+	if(debugVal>1)
+		dumpProcesses();
+	
+	// zap disk drives
+	for (i=0;i<USLOSS_DISK_UNITS;i++){
+		pDebug(1," <- zapping disk[%d] pid[%d]...\n",i,DiskDrives[i]);
+		semvReal(ProcTable[DiskDrives[i]].semID);
+		zap(DiskDrives[i]);  // clock driver
+	}
 
+	// zap terminals
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		pDebug(1," <- zapping terminal[%d] pid[%d]...\n",i,Terminals[i]);
+		semvReal(ProcTable[Terminals[i]].semID);
+		zap(Terminals[i]);  // clock driver
+	}
+	
     // eventually, at the end:
     quit(0);
     
@@ -180,13 +215,12 @@ int sleepReal(long sleepDuration){
 	else{
 		int sleepAt;
 		gettimeofdayReal(&sleepAt);
-		int sleepWakeAt = sleepAt + sleepDuration;
+		int sleepWakeAt = sleepAt + sleepDuration*1000000;
 		
 		ProcTable[getpid()%MAXPROC].pid = getpid();
-		ProcTable[getpid()%MAXPROC].sleepDuration = sleepDuration;
+		ProcTable[getpid()%MAXPROC].sleepDuration = sleepDuration*1000000;
 		ProcTable[getpid()%MAXPROC].sleepWakeAt = sleepWakeAt;
 		ProcTable[getpid()%MAXPROC].sleepAt = sleepAt;
-		
 		push(&SleepList,sleepWakeAt,&ProcTable[getpid()%MAXPROC]);
 		sempReal(ProcTable[getpid()%MAXPROC].semID);
 	}
@@ -377,14 +411,68 @@ int termWriteReal(){
 *                           DRIVERS
 *
 *************************************************************************/
-static int DiskDriver(char *arg)
-{
-    return 0;
+static int DiskDriver(char *arg){
+    pDebug(1," <- DiskDriver(): start \n");
+    int result;
+    int status;
+	int unit = atoi(arg);
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
+    int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+	if (enableInturruptResult == 1)
+		USLOSS_Halt(1);
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		pDebug(1," <- DiskDriver(): Before waitDevice on disk [%d]...\n",unit);
+		sempReal(ProcTable[DiskDrives[unit]].semID);
+		//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+		pDebug(1," <- DiskDriver(): end waitDevice on disk [%d]...\n",unit);
+		if (result != 0) {
+			return 0;
+		}
+		/*
+		 * Compute the current time and wake up any processes
+		 * whose time has come.
+		 */
+		 
+		//while(1){
+		//}
+	}
+	pDebug(1," <- DiskDriver(): end \n");
+	return status;
 }
 
-static int TermDriver(char *arg)
-{
-    return 0;
+static int TermDriver(char *arg){
+    pDebug(1," <- TermDriver(): start \n");
+    int result;
+    int status;
+	int unit = atoi(arg);
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+    int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+	if (enableInturruptResult == 1)
+		USLOSS_Halt(1);
+	
+
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		sempReal(ProcTable[Terminals[unit]].semID);
+		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+		if (result != 0) {
+			return 0;
+		}
+		/*
+		 * Compute the current time and wake up any processes
+		 * whose time has come.
+		 */
+	//	while(1){
+	//	}
+	}
+	
+	pDebug(1," <- TermDriver(): end \n");
+	return status;
 }
 
 static int ClockDriver(char *arg){
@@ -408,14 +496,17 @@ static int ClockDriver(char *arg){
 		 * Compute the current time and wake up any processes
 		 * whose time has come.
 		 */
-		while (SleepList.count>0){
-			gettimeofdayReal(&time);
-			if(peek(SleepList)->sleepWakeAt >= time){
-				procPtr temp = pop(&SleepList);
-				semvReal(temp->semID);
-			}
-			printf("ClockDriver(): time_of_day = [%d]\n",time); 
+		//dp4();
+		//printQ(SleepList);
+
+		gettimeofdayReal(&time); 
+		while(SleepList.count>0 && ((peek(SleepList)->sleepWakeAt)) <= time){
+			procPtr temp = pop(&SleepList);
+			semvReal(temp->semID);
+			pDebug(1," <- ClockDriver(): waking up = pid[%d]\n",temp->pid); 
+			
 		}
+
 	}
 	pDebug(1," <- ClockDriver(): end \n");
 	return status;
@@ -478,15 +569,13 @@ int check_kernel_mode(char *procName){
  *		usloss console
  *****************************************************************************/
 void dp4(){
-    USLOSS_Console("\n------------------------PROCESS TABLE-----------------------\n");
-    USLOSS_Console(" PID  Name Status  PVStatus mBoxID sleepAt  SleepDur. SleepWakeAt semID mBoxID\n");
-    USLOSS_Console("------------------------------------------------------------\n");
+    USLOSS_Console("\n---------------------------PROCESS TABLE--------------------------\n");
+    USLOSS_Console(" PID  Name     Status  SleepAt  SleepDur. SleepWakeAt SemID MboxID\n");
+    USLOSS_Console("------------------------------------------------------------------\n");
 	for( i= 0; i< MAXPROC;i++){
 		if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
-			USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%d] %-6s[%-2d] %-6s[%-2d] %-3s[%-2d] %-2s[%-7s] %-2s[%-2d]\n"
-					,"",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",
-					ProcTable[i].PVstatus,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID);
+			USLOSS_Console("%-1s[%-2d] %s[%-6s] %-0s[%d] %-3s[%-2d] %-3s[%-2d] %-5s[%-2d] %-6s[%-2d] %-1s[%-2d]\n","",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID);
 		}	  
 	}
-    USLOSS_Console("------------------------------------------------------------\n");    
+    USLOSS_Console("------------------------------------------------------------------\n");    
 }

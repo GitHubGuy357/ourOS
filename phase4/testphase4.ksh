@@ -1,5 +1,5 @@
 #!/bin/ksh
-dir=/home/cs452/fall17/phase4/testResults
+dir=testResults
 #dir=/home/cs452/fall17/admin/project/phase4/testResults
 #dir=/Users/patrick/Classes/452/project/phase4/testResults
 

@@ -50,19 +50,23 @@ do
     filename=$(basename "$entry")
     extension="${filename##*.}"
     filename="${filename%.*}"
-    if [ -e "$input_folder_right/$filename$ext" ]; then
-        diff "$input_folder_left/$filename$ext" "$input_folder_right/$filename$ext" > "$raw_file_result"
-        if [ $? -eq 0 ];then
-            match="${match}  ${filename} ----MATCH----\n"
-            (( match_count++ ))
-        else
-            match_not="${match_not}  ${filename} ----NOT MATCH----\n"
-            (( match_not_count++ ))
-        fi
-    else
-        missing+="  $filename$ext\n"
-        (( missing_count++ ))
-    fi
+	if [ $extension = "c" ]; then
+		if [ -e "$input_folder_right/$filename$ext" ]; then
+			diff "$input_folder_left/$filename$ext" "$input_folder_right/$filename$ext" > "$raw_file_result"
+			if [ $? -eq 0 ];then
+				match="${match}  ${filename} ----MATCH----\n"
+				(( match_count++ ))
+			else
+				match_not="${match_not}  ${filename} ----NOT MATCH----\n"
+				(( match_not_count++ ))
+			fi
+		else
+			missing+="  $filename$ext\n"
+			(( missing_count++ ))
+		fi
+	else
+		echo "Extension $extension skipped."
+	fi
 done
 
 output=""

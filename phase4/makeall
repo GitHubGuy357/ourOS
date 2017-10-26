@@ -13,15 +13,19 @@ mkdir -p $output_folder
 
 for entry in "${input_folder}"/*
 do
-    filename=$(basename "$entry")
+	filename=$(basename "$entry")
     extension="${filename##*.}"
-    filename="${filename%.*}"
-    #echo "Entry=$entry FileName=$filename Extension=$extension"
-    resultfile="$output_folder/$filename.txt"
-    echo -e "\nMaking...$filename"
-    make $filename
-    if [ -e "$filename" ]; then
-        ./$filename > $resultfile
-        echo "Writing run of $filename to $resultfile"
-    fi
+	if [ $extension = "c" ]; then
+		filename="${filename%.*}"
+		#echo "Entry=$entry FileName=$filename Extension=$extension"
+		resultfile="$output_folder/$filename.txt"
+		echo -e "\nMaking...$filename"
+		make $filename
+		if [ -e "$filename" ]; then
+			./$filename > $resultfile
+			echo "Writing run of $filename to $resultfile"
+		fi
+	else
+		echo "$extension skipped."
+	fi
 done
