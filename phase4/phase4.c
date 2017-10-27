@@ -9,6 +9,7 @@
 #include "providedPrototypes.h"
 #include <stdlib.h> /* needed for atoi() */
 #include <stdio.h>
+#include <string.h>
 
 int     debugVal = 0; // 0 == off to 3 == most debug info
 
@@ -26,7 +27,7 @@ int DiskDrives[USLOSS_DISK_UNITS];
 int Terminals[USLOSS_TERM_UNITS];
 
 void start3(void){
-	pDebug(1," <- start3(): start\n");
+	pDebug(2," <- start3(): start\n");
     char	name[128];
     char    termbuf[10];
     int		i;
@@ -34,7 +35,7 @@ void start3(void){
     int		pid;
     int		status;
 	char 	buf[100];
-	termbuf[0] = '\0';
+	buf[0] = termbuf[0];
     /*
      * Check kernel mode here.
      */
@@ -138,18 +139,20 @@ void start3(void){
      */
     pid = spawnReal("start4", start4, NULL, 4 * USLOSS_MIN_STACK, 3);
     pid = waitReal(&status);
-	pDebug(1," <- start3(): after start4() \n");
+	pDebug(2," <- start3(): after start4() \n");
 
     /*
      * Zap the device drivers
      */
-	//dumpProcesses();
-	//dp4();
+	
 	// zap clock driver
+	pDebug(1," <- zapping clock pid[%d]...\n",clockPID);
     zap(clockPID);  
 	
-	if(debugVal>1)
+	if(debugVal>1){
 		dumpProcesses();
+		dp4();
+	}
 	
 	// zap disk drives
 	for (i=0;i<USLOSS_DISK_UNITS;i++){
@@ -205,7 +208,7 @@ void start3(void){
  *
  *****************************************************************************/
 int Sleep(int seconds){
-	pDebug(1," <- Sleep(): start \n");
+	pDebug(2," <- Sleep(): start \n");
     USLOSS_Sysargs sysArg;
     
     CHECKMODE;
@@ -216,7 +219,7 @@ int Sleep(int seconds){
 } /* end of Sleep */
 
 void sleep(USLOSS_Sysargs *args){
-	pDebug(1," <- sleep(): start \n");
+	pDebug(2," <- sleep(): start \n");
 	int returnVal = sleepReal((long)args->arg1);
 	args->arg1 = (void*)(long)returnVal;
 }
@@ -248,8 +251,8 @@ int sleepReal(long sleepDuration){
  *  Arguments:    void* dbuff  -- pointer to the input buffer
  *                int   track  -- first track to read 
  *                int   first -- first sector to read
- *		  int	sectors -- number of sectors to read
- *		  int   unit   -- unit number of the disk
+ *				  int	sectors -- number of sectors to read
+ *				  int   unit   -- unit number of the disk
  *                int   *status    -- pointer to output value
  *                (output value: completion status)
  *  Return Value: 0 means success, -1 means error occurs
@@ -266,17 +269,41 @@ int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *stat
     sysArg.arg4 = (void *)(long) first;
     sysArg.arg5 = (void *)(long) unit;
     USLOSS_Syscall((void *)(long) &sysArg);
-    *status = (long) sysArg.arg1;
+    *status = (long) sysArg.arg4;
     return (long) sysArg.arg4;
 } /* end of DiskRead */
 
 void diskRead(USLOSS_Sysargs *args){
-		pDebug(1," <- diskRead(): start \n");
-	
+	pDebug(2," <- diskRead(): start \n");
+	int returnVal = diskReadReal(args->arg1,(long)args->arg3,(long)args->arg4, (long)args->arg2, (long)args->arg5);
+	args->arg4 = (void*)(long)returnVal;
+	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].dbuff;
 }
 
-int diskReadReal(){
-	return -1;
+int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
+	pDebug(1," <- diskReadReal(): start \n");
+	if(unit <0 || unit >1)
+		return -1;
+	
+	// Get calling process in ProcTable
+	ProcTable[getpid()%MAXPROC].pid = getpid();
+	ProcTable[getpid()%MAXPROC].diskOp = USLOSS_DISK_READ;
+	ProcTable[getpid()%MAXPROC].dbuff = dbuff;
+	ProcTable[getpid()%MAXPROC].track = track;
+	ProcTable[getpid()%MAXPROC].first = first;
+	ProcTable[getpid()%MAXPROC].sectors = sectors;
+	ProcTable[getpid()%MAXPROC].unit = unit;
+
+	
+	// Push Request on Drive Queue
+	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// Wake up disk.
+	semvReal(ProcTable[DiskDrives[unit]].semID);
+	
+	// Block Calling Process.
+	sempReal(ProcTable[getpid()%MAXPROC].semID);
+	return 0;
 }
 
 /******************************************************************************
@@ -302,17 +329,17 @@ int DiskWrite(void *dbuff, int track, int first, int sectors, int unit, int *sta
     sysArg.arg4 = (void *)(long) first;
     sysArg.arg5 = (void *)(long) unit;
     USLOSS_Syscall((void *) &sysArg);
-    *status = (long) sysArg.arg1;
+    *status = (long) sysArg.arg4;
     return (long) sysArg.arg4;
 } /* end of DiskWrite */
 
 void diskWrite(USLOSS_Sysargs *args){
-	pDebug(1," <- diskWrite(): start \n");
-	int returnVal = diskWriteReal(args->arg1,args->arg3,args->arg4, args->arg2, args->arg5);
+	pDebug(2," <- diskWrite(): start \n");
+	int returnVal = diskWriteReal(args->arg1,(long)args->arg3,(long)args->arg4, (long)args->arg2, (long)args->arg5);
 	args->arg4 = (void*)(long)returnVal;
 	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].dbuff;
 }
-
+//DiskWrite(disk_buf_A, 0, 5, 0, 1, &status);
 int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	pDebug(1," <- diskSizeReal(): start \n");
 	if(unit <0 || unit >1)
@@ -366,7 +393,7 @@ int DiskSize(int unit, int *sector, int *track, int *disk){
 } /* end of DiskSize */
 
 void diskSize(USLOSS_Sysargs *args){
-	pDebug(1," <- diskSize(): start \n");
+	pDebug(2," <- diskSize(): start \n");
 	int unit = (long)args->arg1;
 	int returnVal = diskSizeReal(unit);
 	if(returnVal == 0){
@@ -425,7 +452,7 @@ int TermRead(char *buff, int bsize, int unit_id, int *nread){
 } 
 
 void termRead(USLOSS_Sysargs *args){
-		pDebug(1," <- diskSizeReal(): start \n");
+		pDebug(2," <- diskSizeReal(): start \n");
 	
 }
 
@@ -460,7 +487,7 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
 } 
 
 void termWrite(USLOSS_Sysargs *args){
-		pDebug(1," <- termWrite(): start \n");
+		pDebug(2," <- termWrite(): start \n");
 	
 }
 
@@ -475,11 +502,14 @@ int termWriteReal(){
 *
 *************************************************************************/
 static int DiskDriver(char *arg){
-    pDebug(1," <- DiskDriver(): start \n");
+    pDebug(2," <- DiskDriver(): start \n");
     int result = 0;
+	int resultD = -10;
     int status;
 	int unit = atoi(arg);
-	USLOSS_DeviceRequest *control;
+	
+	// If used as pointer and cast (void*) zapping segfaults, must initialize to nothing!
+	USLOSS_DeviceRequest control = { .opr = -1, .reg1 = NULL, .reg2 = NULL}; 
 	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
@@ -507,28 +537,47 @@ static int DiskDriver(char *arg){
 		if(DriveQueue.count > 0){
 			procPtr temp = pop(&DriveQueue);
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
+			
+			//Advance disk to location if read/write op
+			/*
+			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+				control->opr = USLOSS_DISK_SEEK;
+				control->reg1 = (void*)(long)temp->first;
+				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, (void *)control);
+				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+			}
+			*/
+			// Perform disk operation. 		//	if ( result == USLOSS_DEV_OK ) 
 			switch(temp->diskOp ){
 				case USLOSS_DISK_SIZE:
 					
 				break;
 				
 				case USLOSS_DISK_WRITE:
-					control->opr = USLOSS_DISK_SEEK;
-					control->reg1 = (void*)(long)temp->track;
-					result = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, (void *)control);
-					//if ( result == USLOSS_DEV_OK ) {
-					result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-					USLOSS_Console("XXp1(): receive status for terminal 1 = %d\n", USLOSS_TERM_STAT_RECV(status));
-					USLOSS_Console("XXp1(): character received = %c\n", USLOSS_TERM_STAT_CHAR(status));
-					//temp->dbuff[0] = USLOSS_TERM_STAT_CHAR(status);
+					control.opr = USLOSS_DISK_WRITE;
+					control.reg1 = (void*)(long)temp->first;
+					control.reg2 = temp->dbuff;
+					resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				break;
 				
 				case USLOSS_DISK_READ:
-					//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
-					
+					control.opr = USLOSS_DISK_READ;
+					control.reg1 = (void*)(long)temp->first;
+					control.reg2 = temp->dbuff;
+					resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				break;
 			}
 			
+			// Wait for disk inturrupt.
+			result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+			pDebug(2," <- DiskDriver(): waitDevice [Result:%d,Status:%d] DeviceOutput [Result:%d]...\n",result,status,resultD);
+			
+			// If disk is zapped return.
+			if (result != 0) {
+			pDebug(2, "--------------RESULT[%d] != 0 RETURNING 0--------------\n",result);
+			return 0;
+		}		
 			// Unblock Calling Process
 			pDebug(1," <- DiskDriver(): unblocking calling process [%d]...\n",temp->pid);
 			semvReal(temp->semID);
@@ -537,33 +586,19 @@ static int DiskDriver(char *arg){
 
 
 
-		if (result != 0) {
-			return 0;
-		}
-		/*
-		 * Compute the current time and wake up any processes
-		 * whose time has come.
-		 */
-		 
-		//while(1){
-		//}
-
 	}
-			//semvReal(ProcTable[getpid()%MAXPROC].semID);
-	pDebug(1," <- DiskDriver(): end \n");
+	pDebug(2," <- DiskDriver(): end \n");
 	return status;
 }
 
 static int TermDriver(char *arg){
-    pDebug(1," <- TermDriver(): start \n");
+    pDebug(2," <- TermDriver(): start \n");
     int result = 0;
     int status = 0;
 	int unit = atoi(arg);
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
-    int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-	if (enableInturruptResult == 1)
-		USLOSS_Halt(1);
+	enableInterrupts();
 	
 
     // Infinite loop until we are zap'd
@@ -581,20 +616,19 @@ static int TermDriver(char *arg){
 	//	}
 	}
 	
-	pDebug(1," <- TermDriver(): end \n");
+	pDebug(2," <- TermDriver(): end \n");
 	return status;
 }
 
 static int ClockDriver(char *arg){
-	pDebug(1," <- ClockDriver(): start \n");
+	pDebug(2," <- ClockDriver(): start \n");
     int result;
     int status;
 	int time;
+	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
-    int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-	if (enableInturruptResult == 1)
-		USLOSS_Halt(1);
+	enableInterrupts();
 	
     // Infinite loop until we are zap'd
     while(! isZapped()) {
@@ -613,12 +647,12 @@ static int ClockDriver(char *arg){
 		while(SleepList.count>0 && ((peek(SleepList)->sleepWakeAt)) <= time){
 			procPtr temp = pop(&SleepList);
 			semvReal(temp->semID);
-			pDebug(1," <- ClockDriver(): waking up = pid[%d]\n",temp->pid); 
+			pDebug(2," <- ClockDriver(): waking up = pid[%d]\n",temp->pid); 
 			
 		}
 
 	}
-	pDebug(1," <- ClockDriver(): end \n");
+	pDebug(2," <- ClockDriver(): end \n");
 	return status;
 }
 
@@ -644,7 +678,7 @@ void nullsys4(USLOSS_Sysargs *args) {
 int enableInterrupts(){
 	int enableInturrupts = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 	if (enableInturrupts == 1){
-		USLOSS_Console("Enable Inturrupts failed, haulting...\n");
+		USLOSS_Console("Enable Inturrupts failed, halting...\n");
 		USLOSS_Halt(1);
 	}
 	return enableInturrupts;
