@@ -41,6 +41,7 @@ extern  int  start4(char * name);
 void dp4();
 void intializeSysCalls();
 int check_kernel_mode(char *procName);
+int enableInterrupts();
 void putUserMode();
 int pDebug(int level, char *fmt, ...);
 void nullsys4(USLOSS_Sysargs *args);
@@ -75,6 +76,12 @@ typedef struct procTable {
 	int disk_track_size; 
 	int disk_size;
 } procTable; 
+
+typedef struct diskRequest *diskReqPtr;
+typedef struct diskRequest {
+    int pid;
+	int operation;
+} diskRequest; 
 
 #define ERR_INVALID             -1
 #define ERR_OK                  0

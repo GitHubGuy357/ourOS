@@ -20,7 +20,7 @@ static int	DiskDriver(char *);
 static int	TermDriver(char *);
 procTable ProcTable[MAXPROC];
 MinQueue SleepList;
-MinQueue DriveList;
+MinQueue DriveSizeList;
 int DiskDrives[USLOSS_DISK_UNITS];
 int Terminals[USLOSS_TERM_UNITS];
 
@@ -63,7 +63,7 @@ void start3(void){
 		intialize_queue2(&SleepList);
 	
 	//Initialize Sleeplist
-		intialize_queue2(&DriveList);
+		intialize_queue2(&DriveSizeList);
 		
 	//Initialize SystemCalls
 		intializeSysCalls();
@@ -97,7 +97,7 @@ void start3(void){
         sprintf(buf, "%d", i);
 		sprintf(name, "DiskDriver %d", i);
         pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
-		DiskDrives[i] = pid;
+		//DiskDrives[i] = pid;
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create disk driver %d\n", i);
             USLOSS_Halt(1);
@@ -346,14 +346,16 @@ void diskSize(USLOSS_Sysargs *args){
 }
 	
 int diskSizeReal(int unit){
+	pDebug(1," <- diskSizeReal(): start \n");
 	if(unit <0 || unit >1)
 		return -1;
-
-	ProcTable[DiskDrives[unit]].pid = getpid();
-	ProcTable[DiskDrives[unit]].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
-	ProcTable[DiskDrives[unit]].disk_track_size = USLOSS_DISK_TRACK_SIZE;
-	ProcTable[DiskDrives[unit]].disk_size = USLOSS_DISK_TRACK_SIZE * (unit+1); // Makes no sense, gathered from testcase. Unit 1 has twice as many tracks
-	push(&DriveList,(long long)time(NULL),&ProcTable[DiskDrives[unit]]);
+	push(&DriveSizeList,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// Wake up disk.
+	semvReal(ProcTable[DiskDrives[unit]].semID);
+	
+	// Block Calling Process.
+	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	return 0;
 }
 
@@ -438,19 +440,37 @@ static int DiskDriver(char *arg){
     int result = 0;
     int status = 0;
 	int unit = atoi(arg);
+	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
-	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
-    int enableInturruptResult = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
-	if (enableInturruptResult == 1)
-		USLOSS_Halt(1);
 	
-    // Infinite loop until we are zap'd
+	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
+	
+	//Enable Inturrupts
+    enableInterrupts();
+	
+	// Initialize Disk Unit arg
+	DiskDrives[unit] = getpid();
+	ProcTable[DiskDrives[unit]].pid = getpid();
+	ProcTable[DiskDrives[unit]].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
+	ProcTable[DiskDrives[unit]].disk_track_size = USLOSS_DISK_TRACK_SIZE;
+	ProcTable[DiskDrives[unit]].disk_size = USLOSS_DISK_TRACK_SIZE * (unit+1); // Makes no sense, gathered from 
+   
+   // Infinite loop until we are zap'd
     while(! isZapped()) {
-		pDebug(1," <- DiskDriver(): Before waitDevice on disk [%d]...\n",unit);
+		pDebug(1," <- DiskDriver(): Before block on disk [%d]...\n",unit);
 		sempReal(ProcTable[DiskDrives[unit]].semID);
-		//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
-		pDebug(1," <- DiskDriver(): end waitDevice on disk [%d]...\n",unit);
+		if(DriveSizeList.count > 0){
+			dp4();
+			procPtr temp = pop(&DriveSizeList);
+			pDebug(1," <- DiskDriver(): unblocking calling process [%d]...\n",temp->pid);
+			semvReal(temp->semID);
+
+			//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+		}
+
+
+
 		if (result != 0) {
 			return 0;
 		}
@@ -461,7 +481,9 @@ static int DiskDriver(char *arg){
 		 
 		//while(1){
 		//}
+
 	}
+			//semvReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- DiskDriver(): end \n");
 	return status;
 }
@@ -498,7 +520,7 @@ static int TermDriver(char *arg){
 }
 
 static int ClockDriver(char *arg){
-	pDebug(1,"<- ClockDriver(): start \n");
+	pDebug(1," <- ClockDriver(): start \n");
     int result;
     int status;
 	int time;
@@ -553,6 +575,14 @@ void nullsys4(USLOSS_Sysargs *args) {
 	terminateReal(getpid());
 } /* nullsys3 */
 
+int enableInterrupts(){
+	int enableInturrupts = USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
+	if (enableInturrupts == 1){
+		USLOSS_Console("Enable Inturrupts failed, haulting...\n");
+		USLOSS_Halt(1);
+	}
+	return enableInturrupts;
+}
 /*****************************************************************************
  *     putUserMode - puts the OS into usermode with the appropriate call to 
  *		psrSet
