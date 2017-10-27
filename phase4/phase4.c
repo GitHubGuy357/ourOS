@@ -20,7 +20,8 @@ static int	DiskDriver(char *);
 static int	TermDriver(char *);
 procTable ProcTable[MAXPROC];
 MinQueue SleepList;
-MinQueue DriveSizeList;
+MinQueue DriveQueue;
+char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
 int DiskDrives[USLOSS_DISK_UNITS];
 int Terminals[USLOSS_TERM_UNITS];
 
@@ -57,13 +58,19 @@ void start3(void){
 		ProcTable[i].disk_sector_size = -1;
 		ProcTable[i].disk_track_size = -1;
 		ProcTable[i].disk_size = -1;
+		ProcTable[i].diskOp = -1;
+		ProcTable[i].dbuff = NULL;
+		ProcTable[i].track = -1;
+		ProcTable[i].first = -1;
+		ProcTable[i].sectors = -1;
+		ProcTable[i].unit = -1;
 	}
 	
 	//Initialize Sleeplist
 		intialize_queue2(&SleepList);
 	
 	//Initialize Sleeplist
-		intialize_queue2(&DriveSizeList);
+		intialize_queue2(&DriveQueue);
 		
 	//Initialize SystemCalls
 		intializeSysCalls();
@@ -273,13 +280,13 @@ int diskReadReal(){
 }
 
 /******************************************************************************
- *  Routine:  Sys_DiskWrite
+ *  Routine:  DiskWrite
  *  Description: This is the call entry point for disk output.
  *  Arguments:    void* dbuff  -- pointer to the output buffer
  *                int   track  -- first track to write
  *                int   first -- first sector to write
- *		  int	sectors -- number of sectors to write
- *		  int   unit   -- unit number of the disk
+ *				  int	sectors -- number of sectors to write
+ *				  int   unit   -- unit number of the disk
  *                int   *status    -- pointer to output value
  *                (output value: completion status)
  *  Return Value: 0 means success, -1 means error occurs
@@ -300,15 +307,40 @@ int DiskWrite(void *dbuff, int track, int first, int sectors, int unit, int *sta
 } /* end of DiskWrite */
 
 void diskWrite(USLOSS_Sysargs *args){
-		pDebug(1," <- diskWrite(): start \n");
+	pDebug(1," <- diskWrite(): start \n");
+	int returnVal = diskWriteReal(args->arg1,args->arg3,args->arg4, args->arg2, args->arg5);
+	args->arg4 = (void*)(long)returnVal;
+	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].dbuff;
 }
 
-int diskWriteReal(){
-	return -1;
+int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
+	pDebug(1," <- diskSizeReal(): start \n");
+	if(unit <0 || unit >1)
+		return -1;
+	
+	// Get calling process in ProcTable
+	ProcTable[getpid()%MAXPROC].pid = getpid();
+	ProcTable[getpid()%MAXPROC].diskOp = USLOSS_DISK_WRITE;
+	ProcTable[getpid()%MAXPROC].dbuff = dbuff;
+	ProcTable[getpid()%MAXPROC].track = track;
+	ProcTable[getpid()%MAXPROC].first = first;
+	ProcTable[getpid()%MAXPROC].sectors = sectors;
+	ProcTable[getpid()%MAXPROC].unit = unit;
+
+	
+	// Push Request on Drive Queue
+	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// Wake up disk.
+	semvReal(ProcTable[DiskDrives[unit]].semID);
+	
+	// Block Calling Process.
+	sempReal(ProcTable[getpid()%MAXPROC].semID);
+	return 0;
 }
 
 /******************************************************************************
- *  Routine:  Sys_DiskSize
+ *  Routine:  DiskSize
  *
  *  Description: Return information about the size of the disk.
  *
@@ -349,7 +381,14 @@ int diskSizeReal(int unit){
 	pDebug(1," <- diskSizeReal(): start \n");
 	if(unit <0 || unit >1)
 		return -1;
-	push(&DriveSizeList,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// Get calling process in ProcTable
+	ProcTable[getpid()%MAXPROC].pid = getpid();
+	ProcTable[getpid()%MAXPROC].diskOp = USLOSS_DISK_SIZE;
+
+	
+	// Push Request on Drive Queue
+	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Wake up disk.
 	semvReal(ProcTable[DiskDrives[unit]].semID);
@@ -438,18 +477,19 @@ int termWriteReal(){
 static int DiskDriver(char *arg){
     pDebug(1," <- DiskDriver(): start \n");
     int result = 0;
-    int status = 0;
+    int status;
 	int unit = atoi(arg);
+	USLOSS_DeviceRequest *control;
 	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
 	
 	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
 	
-	//Enable Inturrupts
+	// Enable Inturrupts
     enableInterrupts();
 	
-	// Initialize Disk Unit arg
+	// Initialize Disk Unit from arg
 	DiskDrives[unit] = getpid();
 	ProcTable[DiskDrives[unit]].pid = getpid();
 	ProcTable[DiskDrives[unit]].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
@@ -458,15 +498,41 @@ static int DiskDriver(char *arg){
    
    // Infinite loop until we are zap'd
     while(! isZapped()) {
+		
+		// Block Disk waiting for Request.
 		pDebug(1," <- DiskDriver(): Before block on disk [%d]...\n",unit);
 		sempReal(ProcTable[DiskDrives[unit]].semID);
-		if(DriveSizeList.count > 0){
-			dp4();
-			procPtr temp = pop(&DriveSizeList);
+		
+		// If Drive has a request in Queue, determine which request we are furfilling.
+		if(DriveQueue.count > 0){
+			procPtr temp = pop(&DriveQueue);
+			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
+			switch(temp->diskOp ){
+				case USLOSS_DISK_SIZE:
+					
+				break;
+				
+				case USLOSS_DISK_WRITE:
+					control->opr = USLOSS_DISK_SEEK;
+					control->reg1 = (void*)(long)temp->track;
+					result = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, (void *)control);
+					//if ( result == USLOSS_DEV_OK ) {
+					result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+					USLOSS_Console("XXp1(): receive status for terminal 1 = %d\n", USLOSS_TERM_STAT_RECV(status));
+					USLOSS_Console("XXp1(): character received = %c\n", USLOSS_TERM_STAT_CHAR(status));
+					//temp->dbuff[0] = USLOSS_TERM_STAT_CHAR(status);
+				break;
+				
+				case USLOSS_DISK_READ:
+					//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+					
+				break;
+			}
+			
+			// Unblock Calling Process
 			pDebug(1," <- DiskDriver(): unblocking calling process [%d]...\n",temp->pid);
 			semvReal(temp->semID);
 
-			//result = waitDevice(USLOSS_DISK_DEV, unit, &status);
 		}
 
 
@@ -630,4 +696,8 @@ void dp4(){
 		}	  
 	}
     USLOSS_Console("------------------------------------------------------------------\n");    
+}
+
+char* getOp(int op){
+	return diskOps[op];
 }

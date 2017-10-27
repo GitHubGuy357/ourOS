@@ -45,6 +45,7 @@ int enableInterrupts();
 void putUserMode();
 int pDebug(int level, char *fmt, ...);
 void nullsys4(USLOSS_Sysargs *args);
+char* getOp(int op);
 
 // Sys call prototypes
 void sleep(USLOSS_Sysargs *args);
@@ -75,6 +76,12 @@ typedef struct procTable {
 	int disk_sector_size;
 	int disk_track_size; 
 	int disk_size;
+	int diskOp;
+	void *dbuff;
+	int track;
+	int first;
+	int sectors;
+	int unit;
 } procTable; 
 
 typedef struct diskRequest *diskReqPtr;
@@ -83,7 +90,9 @@ typedef struct diskRequest {
 	int operation;
 } diskRequest; 
 
-#define ERR_INVALID             -1
-#define ERR_OK                  0
+#define ERR_INVALID         -1
+#define ERR_OK              0
+#define USLOSS_DISK_SIZE	4
+
 
 #endif /* _PHASE4_H */
