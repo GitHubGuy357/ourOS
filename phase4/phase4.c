@@ -341,7 +341,7 @@ void diskWrite(USLOSS_Sysargs *args){
 }
 //DiskWrite(disk_buf_A, 0, 5, 0, 1, &status);
 int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
-	pDebug(1," <- diskSizeReal(): start \n");
+	pDebug(1," <- diskWriteReal(): start \n");
 	if(unit <0 || unit >1)
 		return -1;
 	
