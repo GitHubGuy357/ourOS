@@ -20,11 +20,11 @@ static int	ClockDriver(char *);
 static int	DiskDriver(char *);
 static int	TermDriver(char *);
 procTable ProcTable[MAXPROC];
+diskTable DiskTable[USLOSS_DISK_UNITS];
 MinQueue SleepList;
-MinQueue DriveQueue;
+
 char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
-int DiskDrives[USLOSS_DISK_UNITS];
-int Terminals[USLOSS_TERM_UNITS];
+int Terminals[USLOSS_TERM_UNITS*3];
 
 void start3(void){
 	pDebug(2," <- start3(): start\n");
@@ -67,15 +67,26 @@ void start3(void){
 		ProcTable[i].unit = -1;
 	}
 	
-	//Initialize Sleeplist
-		intialize_queue2(&SleepList);
+	// Initialize Drive Table
+	for (i=0;i<USLOSS_DISK_UNITS;i++){
+		DiskTable[i].pid = -1;
+		DiskTable[i].disk_sector_size = -1;
+		DiskTable[i].disk_track_size = -1;
+		DiskTable[i].disk_size = -1;
+		DiskTable[i].currentOp = -1;
+		DiskTable[i].currentTrack = -1;
+		DiskTable[i].currentSector = -1;
+		DiskTable[i].semID = semcreateReal(0);
+		DiskTable[i].mboxID = MboxCreate(0,0);
+		intialize_queue2(&DiskTable[i].DriveQueue);
+
+	}
 	
-	//Initialize Sleeplist
-		intialize_queue2(&DriveQueue);
-		
-	//Initialize SystemCalls
+	// Initialize Sleeplist
+		intialize_queue2(&SleepList);
+
+	// Initialize SystemCalls
 		intializeSysCalls();
-		
 		
     /*
      * Create clock device driver 
@@ -118,7 +129,7 @@ void start3(void){
     /*
      * Create terminal device drivers.
      */
-    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+    for (i = 0; i < USLOSS_TERM_UNITS*3; i++) {
         sprintf(buf, "%d", i);
 		sprintf(name, "TermDriver %d", i);
         pid = fork1(name, TermDriver, buf, USLOSS_MIN_STACK, 2);
@@ -156,14 +167,14 @@ void start3(void){
 	
 	// zap disk drives
 	for (i=0;i<USLOSS_DISK_UNITS;i++){
-		pDebug(1," <- zapping disk[%d] pid[%d]...\n",i,DiskDrives[i]);
-		semvReal(ProcTable[DiskDrives[i]].semID);
-		zap(DiskDrives[i]);  // clock driver
+		pDebug(1," <- zapping disk[%d] pid[%d]...\n",i,DiskTable[i].pid);
+		semvReal(DiskTable[i].semID);
+		zap(DiskTable[i].pid);  // clock driver
 	}
 
 	// zap terminals
-	for (i=0;i<USLOSS_TERM_UNITS;i++){
-		pDebug(1," <- zapping terminal[%d] pid[%d]...\n",i,Terminals[i]);
+	for (i=0;i<USLOSS_TERM_UNITS*3;i++){
+		pDebug(2," <- zapping terminal[%d] pid[%d]...\n",i,Terminals[i]);
 		semvReal(ProcTable[Terminals[i]].semID);
 		zap(Terminals[i]);  // clock driver
 	}
@@ -258,9 +269,9 @@ int sleepReal(long sleepDuration){
  *  Return Value: 0 means success, -1 means error occurs
  *
 ******************************************************************************/
-int DiskRead(void *dbuff, int track, int first, int sectors, int unit, int *status){
+int DiskRead(void *dbuff, int unit, int track, int first, int sectors, int *status){
     USLOSS_Sysargs sysArg;
-    
+
     CHECKMODE;
     sysArg.number = SYS_DISKREAD;
     sysArg.arg1 = dbuff;
@@ -281,8 +292,10 @@ void diskRead(USLOSS_Sysargs *args){
 }
 
 int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
-	pDebug(1," <- diskReadReal(): start \n");
-	if(unit <0 || unit >1)
+	pDebug(1,"\n <- diskReadReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
+	
+	// Check if arguments are bad
+	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size)
 		return -1;
 	
 	// Get calling process in ProcTable
@@ -296,10 +309,10 @@ int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
 
 	
 	// Push Request on Drive Queue
-	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	push(&DiskTable[unit].DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Wake up disk.
-	semvReal(ProcTable[DiskDrives[unit]].semID);
+	semvReal(DiskTable[unit].semID);
 	
 	// Block Calling Process.
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
@@ -318,9 +331,8 @@ int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
  *                (output value: completion status)
  *  Return Value: 0 means success, -1 means error occurs
 ******************************************************************************/
-int DiskWrite(void *dbuff, int track, int first, int sectors, int unit, int *status){
+int DiskWrite(void *dbuff, int unit, int track, int first, int sectors, int *status){
     USLOSS_Sysargs sysArg;
-
     CHECKMODE;
     sysArg.number = SYS_DISKWRITE;
     sysArg.arg1 = dbuff;
@@ -334,15 +346,17 @@ int DiskWrite(void *dbuff, int track, int first, int sectors, int unit, int *sta
 } /* end of DiskWrite */
 
 void diskWrite(USLOSS_Sysargs *args){
-	pDebug(2," <- diskWrite(): start \n");
+	pDebug(2," <- diskWrite(): start\n");
 	int returnVal = diskWriteReal(args->arg1,(long)args->arg3,(long)args->arg4, (long)args->arg2, (long)args->arg5);
 	args->arg4 = (void*)(long)returnVal;
 	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].dbuff;
 }
 //DiskWrite(disk_buf_A, 0, 5, 0, 1, &status);
 int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
-	pDebug(1," <- diskWriteReal(): start \n");
-	if(unit <0 || unit >1)
+	pDebug(1,"\n <- diskWriteReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
+	
+	// Check if arguments are bad
+	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size)
 		return -1;
 	
 	// Get calling process in ProcTable
@@ -355,14 +369,40 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	ProcTable[getpid()%MAXPROC].unit = unit;
 
 	
+	
 	// Push Request on Drive Queue
-	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	if(DiskTable[unit].DriveQueue.count == 0){
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since DiskQueue count is 0 and Current Track is [%d], disk can seek now.\n", track,DiskTable[unit].DriveQueue.count, DiskTable[unit].currentTrack);
+		push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
+	}else{
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since DiskQueue count is [%d] and Current Track = %d. Must insert correctly...\n", track,DiskTable[unit].DriveQueue.count, DiskTable[unit].currentTrack);
+		
+		if(track >= DiskTable[unit].currentTrack){
+			push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
+		}else if(track < DiskTable[unit].currentTrack){
+				push(&DiskTable[unit].DriveQueue,track+DiskTable[unit].disk_size,&ProcTable[getpid()%MAXPROC]);
+		}
+		//else{
+	//		if (first > DiskTable[unit].currentSector)
+		//		push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
+		//	else
+		//		push(&DiskTable[unit].DriveQueue,track+DiskTable[unit].disk_size,&ProcTable[getpid()%MAXPROC]);
+		//}
+	}
+	
 	
 	// Wake up disk.
-	semvReal(ProcTable[DiskDrives[unit]].semID);
+	if(debugVal>1){
+		dp4();
+		printQ(DiskTable[unit].DriveQueue);
+	}
+	pDebug(1," <- diskWriteReal(): Before wake disk[%d.%d]\n",unit,ProcTable[getpid()%MAXPROC].unit);
+	semvReal(DiskTable[unit].semID);
 	
 	// Block Calling Process.
+	pDebug(1," <- diskWriteReal(): Before block on disk[%d.%d] calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
+	pDebug(3," <- diskWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
 }
 
@@ -397,9 +437,9 @@ void diskSize(USLOSS_Sysargs *args){
 	int unit = (long)args->arg1;
 	int returnVal = diskSizeReal(unit);
 	if(returnVal == 0){
-		args->arg1 = (void*)(long)ProcTable[DiskDrives[unit]].disk_sector_size;
-		args->arg2 = (void*)(long)ProcTable[DiskDrives[unit]].disk_track_size;
-		args->arg3 = (void*)(long)ProcTable[DiskDrives[unit]].disk_size;
+		args->arg1 = (void*)(long)DiskTable[unit].disk_sector_size;
+		args->arg2 = (void*)(long)DiskTable[unit].disk_track_size;
+		args->arg3 = (void*)(long)DiskTable[unit].disk_size;
 	}
 	args->arg4 = (void*)(long)returnVal;
 }
@@ -415,10 +455,10 @@ int diskSizeReal(int unit){
 
 	
 	// Push Request on Drive Queue
-	push(&DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	push(&DiskTable[unit].DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Wake up disk.
-	semvReal(ProcTable[DiskDrives[unit]].semID);
+	semvReal(DiskTable[unit].semID);
 	
 	// Block Calling Process.
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
@@ -507,9 +547,13 @@ static int DiskDriver(char *arg){
 	int resultD = -10;
     int status;
 	int unit = atoi(arg);
+	int disk_size_req;
 	
+	// Get disk size from USLOSS
 	// If used as pointer and cast (void*) zapping segfaults, must initialize to nothing!
-	USLOSS_DeviceRequest control = { .opr = -1, .reg1 = NULL, .reg2 = NULL}; 
+	USLOSS_DeviceRequest control = { .opr = USLOSS_DISK_TRACKS, .reg1 = &disk_size_req, .reg2 = NULL}; 
+	resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &control);
+	result = waitDevice(USLOSS_DISK_DEV, unit, &status);
 	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
@@ -520,22 +564,25 @@ static int DiskDriver(char *arg){
     enableInterrupts();
 	
 	// Initialize Disk Unit from arg
-	DiskDrives[unit] = getpid();
-	ProcTable[DiskDrives[unit]].pid = getpid();
-	ProcTable[DiskDrives[unit]].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
-	ProcTable[DiskDrives[unit]].disk_track_size = USLOSS_DISK_TRACK_SIZE;
-	ProcTable[DiskDrives[unit]].disk_size = USLOSS_DISK_TRACK_SIZE * (unit+1); // Makes no sense, gathered from 
+	DiskTable[unit].pid = getpid();
+	DiskTable[unit].currentOp = -1;
+	DiskTable[unit].currentTrack = 0;
+	DiskTable[unit].currentSector = 0;
+	DiskTable[unit].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
+	DiskTable[unit].disk_track_size = USLOSS_DISK_TRACK_SIZE;
+	DiskTable[unit].disk_size = disk_size_req; // Makes no sense, gathered from testcase.
+	// TODO: Get from usloss with Control reg1 returns amount of tracks with USLOSS_DeviceRequest USLOSS_DISK_TRACKS
    
    // Infinite loop until we are zap'd
     while(! isZapped()) {
 		
 		// Block Disk waiting for Request.
 		pDebug(1," <- DiskDriver(): Before block on disk [%d]...\n",unit);
-		sempReal(ProcTable[DiskDrives[unit]].semID);
+		sempReal(DiskTable[unit].semID);
 		
 		// If Drive has a request in Queue, determine which request we are furfilling.
-		if(DriveQueue.count > 0){
-			procPtr temp = pop(&DriveQueue);
+		if(DiskTable[unit].DriveQueue.count > 0){
+			procPtr temp = peek(DiskTable[unit].DriveQueue);
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
 			
 			//Advance disk to location if read/write op
@@ -550,36 +597,65 @@ static int DiskDriver(char *arg){
 			*/
 			// Perform disk operation. 		//	if ( result == USLOSS_DEV_OK ) 
 			switch(temp->diskOp ){
-				case USLOSS_DISK_SIZE:
-					
+				case USLOSS_DISK_SIZE:	
 				break;
 				
 				case USLOSS_DISK_WRITE:
-					control.opr = USLOSS_DISK_WRITE;
-					control.reg1 = (void*)(long)temp->first;
-					control.reg2 = temp->dbuff;
-					resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+					control.opr = temp->diskOp;
+					pDebug(1, " <- DiskDriver(): Process[%d] writing [%d] sectors to disk [%d, pid=%d]\n",temp->pid,temp->sectors, temp->unit,DiskTable[unit].pid);
+				break;
+
+				case USLOSS_DISK_READ:
+					control.opr = temp->diskOp;
+					pDebug(1, " <- DiskDriver(): Process[%d] reading [%d] sectors from disk [%d, pid=%d]\n",temp->pid,temp->sectors, temp->unit,DiskTable[unit].pid);
 				break;
 				
-				case USLOSS_DISK_READ:
-					control.opr = USLOSS_DISK_READ;
-					control.reg1 = (void*)(long)temp->first;
-					control.reg2 = temp->dbuff;
-					resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
-				break;
+				default:
+					pDebug(0,"\n\nEMERGENCY: SHOULD NOT BE HERE\n\n");
+					break;
 			}
 			
-			// Wait for disk inturrupt.
-			result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-			pDebug(2," <- DiskDriver(): waitDevice [Result:%d,Status:%d] DeviceOutput [Result:%d]...\n",result,status,resultD);
+			int curSectorsToWrite = temp->sectors;
+			void* curDbuffPtr = temp->dbuff;
+			int curSector = temp->first;
+			int curTrack = temp->track;
+
+			
+			while(curSectorsToWrite > 0){
+				if(curSector +1== DiskTable[unit].disk_track_size){
+					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]",curTrack,curSector);
+					curTrack = curTrack+1%DiskTable[unit].disk_track_size;
+					curSector = 0;
+					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
+				}
+				
+				// Wait for disk inturrupt.
+				control.reg1 = (void*)(long)curSector;
+				control.reg2 = curDbuffPtr;
+				DiskTable[temp->unit].currentSector = curSector;
+				DiskTable[temp->unit].currentTrack =  curTrack;
+				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				
+				// Advance disk to next sector
+				curDbuffPtr+= USLOSS_DISK_SECTOR_SIZE;
+				curSector++;
+				curSectorsToWrite--;
+				
+
+				pDebug(1," <- DiskDriver(): After waitDevice [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",result,status,resultD);
+
+			}
+			// TODO: Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek
+			pop(&DiskTable[unit].DriveQueue);
 			
 			// If disk is zapped return.
 			if (result != 0) {
-			pDebug(2, "--------------RESULT[%d] != 0 RETURNING 0--------------\n",result);
-			return 0;
-		}		
+				pDebug(1, "--------------RESULT[%d] != 0 RETURNING 0--------------\n",result);
+				return 0;
+			}	
 			// Unblock Calling Process
-			pDebug(1," <- DiskDriver(): unblocking calling process [%d]...\n",temp->pid);
+			pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
 			semvReal(temp->semID);
 
 		}
@@ -640,9 +716,8 @@ static int ClockDriver(char *arg){
 		 * Compute the current time and wake up any processes
 		 * whose time has come.
 		 */
-		//dp4();
-		//printQ(SleepList);
 
+		pDebug(3," <- ClockDriver(): calling gettimeofdayReal\n"); 
 		gettimeofdayReal(&time); 
 		while(SleepList.count>0 && ((peek(SleepList)->sleepWakeAt)) <= time){
 			procPtr temp = pop(&SleepList);
@@ -720,16 +795,22 @@ int check_kernel_mode(char *procName){
  *     dp4 - Used to output a formatted version of the process table to the 
  *		usloss console
  *****************************************************************************/
+ 	int diskOp;
+	void *dbuff;
+	int track;
+	int first;
+	int sectors;
+	int unit;
 void dp4(){
-    USLOSS_Console("\n---------------------------PROCESS TABLE--------------------------\n");
-    USLOSS_Console(" PID  Name     Status  SleepAt  SleepDur. SleepWakeAt SemID MboxID\n");
-    USLOSS_Console("------------------------------------------------------------------\n");
+    USLOSS_Console("\n------------------------------------------------PROCESS TABLE----------------------------------------------\n");
+    USLOSS_Console(" PID  Name     Status S.At    S.Dur.    S.WakeAt    SemID MboxID diskOp dbuff      track first sectors unit\n");
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");
 	for( i= 0; i< MAXPROC;i++){
 		if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
-			USLOSS_Console("%-1s[%-2d] %s[%-6s] %-0s[%d] %-3s[%-2d] %-3s[%-2d] %-5s[%-2d] %-6s[%-2d] %-1s[%-2d]\n","",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID);
+			USLOSS_Console("%-1s[%-2d] %s[%-6s] %-0s[%d] %-2s[%-2d] %-3s[%-2d] %-5s[%-2d] %-7s[%-2d] %-1s[%-2d] %-2s[%-2d] %-1s[%-2d] %-1s[%-2d] %-1s[%-2d] %-1s[%-2d] %-3s[%-2d]\n","",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID,"",ProcTable[i].diskOp,"",&ProcTable[i].dbuff,"",ProcTable[i].track,"",ProcTable[i].first,"",ProcTable[i].sectors,"",ProcTable[i].unit);
 		}	  
 	}
-    USLOSS_Console("------------------------------------------------------------------\n");    
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");    
 }
 
 char* getOp(int op){

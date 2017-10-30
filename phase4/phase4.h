@@ -84,11 +84,19 @@ typedef struct procTable {
 	int unit;
 } procTable; 
 
-typedef struct diskRequest *diskReqPtr;
-typedef struct diskRequest {
+typedef struct diskTable *diskTablePtr;
+typedef struct diskTable {
     int pid;
-	int operation;
-} diskRequest; 
+	int currentOp;
+	int currentTrack;
+	int currentSector;
+	int disk_sector_size;
+	int disk_track_size;
+	int disk_size;
+	int semID;
+	int mboxID;
+	MinQueue DriveQueue;
+} diskTable; 
 
 #define ERR_INVALID         -1
 #define ERR_OK              0

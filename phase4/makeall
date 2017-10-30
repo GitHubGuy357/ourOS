@@ -50,7 +50,7 @@ do
 done
 
 output="Compile Results:\n\n"
-output="${output} Compiled: ${compiled_count}\n   ${compiled}\n"
-output="${output} Compile Fail: ${compiled_fail_count}\n   ${compiled_fail}\n"
+output="${output} Compiled: ${compiled_count}\n   ${compiled}\n\n"
+output="${output} Failed: ${compiled_fail_count}\n   ${compiled_fail}\n"
 output="${output} Skipped: ${skipped_count}\n   ${skipped}\n"
 printf "$output\n"
