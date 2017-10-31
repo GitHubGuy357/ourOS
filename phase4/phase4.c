@@ -23,6 +23,7 @@ procTable ProcTable[MAXPROC];
 diskTable DiskTable[USLOSS_DISK_UNITS];
 MinQueue SleepList;
 
+
 char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
 int Terminals[USLOSS_TERM_UNITS*3];
 
@@ -78,7 +79,9 @@ void start3(void){
 		DiskTable[i].currentSector = -1;
 		DiskTable[i].semID = semcreateReal(0);
 		DiskTable[i].mboxID = MboxCreate(0,0);
-		intialize_queue2(&DiskTable[i].DriveQueue);
+		DiskTable[i].drive_seek_dir = -1;
+		intialize_queue2(&DiskTable[i].DriveQueueR);
+		intialize_queue2(&DiskTable[i].DriveQueueL);
 
 	}
 	
@@ -309,7 +312,26 @@ int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
 
 	
 	// Push Request on Drive Queue
-	push(&DiskTable[unit].DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	// Push Request on Drive Queue
+	if(DiskTable[unit].drive_seek_dir == 1){
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since drive_seek_dir is RIGHT and Current Track is [%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
+		if (track >= DiskTable[unit].currentTrack){
+			pDebug(1," disk can seek now.\n");
+			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
+		}else{
+			pDebug(1," disk is being added to alternate queue.\n");
+			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
+		}
+	}else{
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since drive_seek_dir is LEFT and Current Track is [%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
+		if (track <= DiskTable[unit].currentTrack){
+			pDebug(1," disk can seek now.\n");
+			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
+		}else{
+			pDebug(1," disk is being added to alternate queue.\n");
+			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
+		}
+	}
 	
 	// Wake up disk.
 	semvReal(DiskTable[unit].semID);
@@ -353,7 +375,7 @@ void diskWrite(USLOSS_Sysargs *args){
 }
 //DiskWrite(disk_buf_A, 0, 5, 0, 1, &status);
 int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
-	pDebug(1,"\n <- diskWriteReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
+	pDebug(1," <- diskWriteReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
 	
 	// Check if arguments are bad
 	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size)
@@ -367,36 +389,44 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	ProcTable[getpid()%MAXPROC].first = first;
 	ProcTable[getpid()%MAXPROC].sectors = sectors;
 	ProcTable[getpid()%MAXPROC].unit = unit;
-
-	
 	
 	// Push Request on Drive Queue
-	if(DiskTable[unit].DriveQueue.count == 0){
-		pDebug(1," <- diskWriteReal(): Pushing track[%d] since DiskQueue count is 0 and Current Track is [%d], disk can seek now.\n", track,DiskTable[unit].DriveQueue.count, DiskTable[unit].currentTrack);
-		push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
-	}else{
-		pDebug(1," <- diskWriteReal(): Pushing track[%d] since DiskQueue count is [%d] and Current Track = %d. Must insert correctly...\n", track,DiskTable[unit].DriveQueue.count, DiskTable[unit].currentTrack);
-		
-		if(track >= DiskTable[unit].currentTrack){
-			push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
-		}else if(track < DiskTable[unit].currentTrack){
-				push(&DiskTable[unit].DriveQueue,track+DiskTable[unit].disk_size,&ProcTable[getpid()%MAXPROC]);
+	if(DiskTable[unit].drive_seek_dir == 1){
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since drive_seek_dir is RIGHT and Current Track is [%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
+		if (track >= DiskTable[unit].currentTrack){
+			pDebug(1," disk can seek now.\n");
+			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
+		}else{
+			pDebug(1," disk is being added to alternate queue.\n");
+			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
 		}
-		//else{
-	//		if (first > DiskTable[unit].currentSector)
-		//		push(&DiskTable[unit].DriveQueue,track,&ProcTable[getpid()%MAXPROC]);
-		//	else
-		//		push(&DiskTable[unit].DriveQueue,track+DiskTable[unit].disk_size,&ProcTable[getpid()%MAXPROC]);
-		//}
+	}else{
+		pDebug(1," <- diskWriteReal(): Pushing track[%d] since drive_seek_dir is LEFT and Current Track is [%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
+		if (track <= DiskTable[unit].currentTrack){
+			pDebug(1," disk can seek now.\n");
+			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
+		}else{
+			pDebug(1," disk is being added to alternate queue.\n");
+			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
+		}
+	}
+	
+		
+	if(debugVal>1){
+		USLOSS_Console("\n\n <- diskWriteReal(): drive_Left_queue:\n");
+		printQ(DiskTable[unit].DriveQueueL);
+		USLOSS_Console(" <- diskWriteReal(): drive_Right_queue:\n");
+		printQ(DiskTable[unit].DriveQueueR);
 	}
 	
 	
-	// Wake up disk.
 	if(debugVal>1){
 		dp4();
-		printQ(DiskTable[unit].DriveQueue);
+		printQ(DiskTable[unit].DriveQueueR);
 	}
-	pDebug(1," <- diskWriteReal(): Before wake disk[%d.%d]\n",unit,ProcTable[getpid()%MAXPROC].unit);
+	
+	// Wake up disk.
+	pDebug(1,"\n <- diskWriteReal(): Before wake disk[%d.%d]\n",unit,ProcTable[getpid()%MAXPROC].unit);
 	semvReal(DiskTable[unit].semID);
 	
 	// Block Calling Process.
@@ -455,7 +485,7 @@ int diskSizeReal(int unit){
 
 	
 	// Push Request on Drive Queue
-	push(&DiskTable[unit].DriveQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	push(&DiskTable[unit].DriveQueueR,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Wake up disk.
 	semvReal(DiskTable[unit].semID);
@@ -548,6 +578,7 @@ static int DiskDriver(char *arg){
     int status;
 	int unit = atoi(arg);
 	int disk_size_req;
+	procPtr temp = NULL;
 	
 	// Get disk size from USLOSS
 	// If used as pointer and cast (void*) zapping segfaults, must initialize to nothing!
@@ -568,11 +599,11 @@ static int DiskDriver(char *arg){
 	DiskTable[unit].currentOp = -1;
 	DiskTable[unit].currentTrack = 0;
 	DiskTable[unit].currentSector = 0;
+	DiskTable[unit].drive_seek_dir = 1; // Start seeking right.
 	DiskTable[unit].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
 	DiskTable[unit].disk_track_size = USLOSS_DISK_TRACK_SIZE;
 	DiskTable[unit].disk_size = disk_size_req; // Makes no sense, gathered from testcase.
-	// TODO: Get from usloss with Control reg1 returns amount of tracks with USLOSS_DeviceRequest USLOSS_DISK_TRACKS
-   
+  
    // Infinite loop until we are zap'd
     while(! isZapped()) {
 		
@@ -581,8 +612,15 @@ static int DiskDriver(char *arg){
 		sempReal(DiskTable[unit].semID);
 		
 		// If Drive has a request in Queue, determine which request we are furfilling.
-		if(DiskTable[unit].DriveQueue.count > 0){
-			procPtr temp = peek(DiskTable[unit].DriveQueue);
+		if(DiskTable[unit].DriveQueueL.count > 0 || DiskTable[unit].DriveQueueR.count > 0){
+			
+			if(DiskTable[unit].drive_seek_dir == 1)
+				temp = peek(DiskTable[unit].DriveQueueR);
+			else if(DiskTable[unit].drive_seek_dir == 0)
+				temp = peek(DiskTable[unit].DriveQueueL);
+			else
+				pDebug(0,"\n\n\n\nBAD TOUCH - Request to drive_seek_dir[%d]\n\n\n\n",DiskTable[unit].drive_seek_dir);
+			
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
 			
 			//Advance disk to location if read/write op
@@ -615,26 +653,33 @@ static int DiskDriver(char *arg){
 					break;
 			}
 			
+			// Temp variables, required or pointer points incorrectly to tests.
 			int curSectorsToWrite = temp->sectors;
 			void* curDbuffPtr = temp->dbuff;
 			int curSector = temp->first;
 			int curTrack = temp->track;
 
-			
+			// Loop to Write/Read through each sector requested
 			while(curSectorsToWrite > 0){
-				if(curSector +1== DiskTable[unit].disk_track_size){
+				if(curSector +1== DiskTable[temp->unit].disk_track_size){
 					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]",curTrack,curSector);
-					curTrack = curTrack+1%DiskTable[unit].disk_track_size;
+					curTrack = curTrack+1%DiskTable[temp->unit].disk_track_size;
 					curSector = 0;
 					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				}
 				
-				// Wait for disk inturrupt.
+				// Set control parameters for USLOSS_DeviceOutput
 				control.reg1 = (void*)(long)curSector;
 				control.reg2 = curDbuffPtr;
+				
+				// Update Disk current track/sector for scheduling when inserting into queue.
 				DiskTable[temp->unit].currentSector = curSector;
 				DiskTable[temp->unit].currentTrack =  curTrack;
+				
+				// Make request
 				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				
+				// Wait for disk inturrupt.
 				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
 				
 				// Advance disk to next sector
@@ -647,15 +692,41 @@ static int DiskDriver(char *arg){
 
 			}
 			// TODO: Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek
-			pop(&DiskTable[unit].DriveQueue);
+			
+			if(debugVal>0){
+				USLOSS_Console("\n\n <- DiskDriver(): [[[Left_queue]]:\n");
+				printQ(DiskTable[temp->unit].DriveQueueL);
+				USLOSS_Console("\n <- DiskDriver(): [[Right_queue]]:\n");
+				printQ(DiskTable[temp->unit].DriveQueueR);
+				USLOSS_Console("\n");
+			}
+			
+			// If priority is negative, then we need to remove from left queue.
+			if (DiskTable[temp->unit].drive_seek_dir == 0){
+				pop(&DiskTable[temp->unit].DriveQueueL);
+				if(DiskTable[temp->unit].DriveQueueL.count == 0)
+					DiskTable[temp->unit].drive_seek_dir = 1;
+			}else{
+				pop(&DiskTable[temp->unit].DriveQueueR);
+				if(DiskTable[temp->unit].DriveQueueR.count == 0)
+					DiskTable[temp->unit].drive_seek_dir = 0;
+			}
+		
+		if (DiskTable[temp->unit].DriveQueueR.count == 0 && DiskTable[temp->unit].DriveQueueL.count == 0){
+			pDebug(1," <- DiskDriver(): Both QUEUES are EMPTY\n");
+		}
+
+	
 			
 			// If disk is zapped return.
 			if (result != 0) {
 				pDebug(1, "--------------RESULT[%d] != 0 RETURNING 0--------------\n",result);
 				return 0;
 			}	
+			
 			// Unblock Calling Process
 			pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
+			
 			semvReal(temp->semID);
 
 		}

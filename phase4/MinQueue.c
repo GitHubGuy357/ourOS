@@ -117,6 +117,22 @@ struct procTable* pop(MinQueue *heap) {
 }
 
 /****************************************************************************
+ * popR - Takes the min value node off the top of queue.
+ * INPUT: A min-heap.
+ * OUTPUT: Returns the data held by priority, can be modified from struct procTable* to function for ready list.
+ * SIDEEFFECTS: Alters the incoming heap.
+ ****************************************************************************/
+struct procTable* popR(MinQueue *heap) {
+	struct procTable* returnData = NULL;
+	if (heap->count > 0) {
+		Node *returnNode = heap->topPtr;
+		returnData = returnNode->data;
+		heap->topPtr = heap->topPtr->next;
+		heap->count--;
+	}
+	return returnData;
+}
+/****************************************************************************
  * intialize_queue - Takes the min value node off the top of queue.
  * INPUT: A min-heap.
  * OUTPUT: None

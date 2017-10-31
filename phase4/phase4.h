@@ -95,7 +95,9 @@ typedef struct diskTable {
 	int disk_size;
 	int semID;
 	int mboxID;
-	MinQueue DriveQueue;
+	MinQueue DriveQueueR;
+	MinQueue DriveQueueL;
+	int drive_seek_dir; // 0 = left, 1 = right
 } diskTable; 
 
 #define ERR_INVALID         -1
