@@ -45,12 +45,15 @@ int removeQ(MinQueue *heap, int val_to_remove) {
  * print_queue - Prints the queue to stdio
  ****************************************************************************/
  
-void printQ(MinQueue q) {
-	printf("Process List: Count = [%d]\n",q.count);
-	// WHY DOES THIS POINTER PRINTING DOES NOT WORK??? FIRST ELEMENT SHOWS IN DATA CORRECTLY, NEVER PRINTS, PRINTS 1 LESS ELEMENT AND THATS IT
+void printQ(MinQueue q, char *fmt, ...) {
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(stdout, fmt, args);
+    fflush(stdout);
+	printf(" Queue: Count = [%d]\n",q.count);
 	Node *tmp = q.topPtr;
 	while (tmp != NULL) {
-		printf(" ->Priority:[%ld] Pid:[%ld] SleepAt:[%ld] WakeAt:[%ld] Unit:[%d] Track:[%d] F.Sector[%d]\n",(long)tmp->priority, (long)tmp->data->pid, tmp->data->sleepAt, tmp->data->sleepWakeAt, tmp->data->unit, tmp->data->track, tmp->data->first);
+		printf("  ^->Priority:[%ld] Pid:[%ld] SleepAt:[%ld] WakeAt:[%ld] Unit:[%d] Track:[%d] F.Sector[%d]\n",(long)tmp->priority, (long)tmp->data->pid, tmp->data->sleepAt, tmp->data->sleepWakeAt, tmp->data->unit, tmp->data->track, tmp->data->first);
 		tmp = tmp->next;
 	}
 }
