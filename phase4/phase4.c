@@ -631,15 +631,14 @@ static int DiskDriver(char *arg){
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
 			
 			//Advance disk to location if read/write op
-			/*
-			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
-				control->opr = USLOSS_DISK_SEEK;
-				control->reg1 = (void*)(long)temp->first;
-				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, (void *)control);
-				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
-			}
-			*/
+			// if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+				// control.opr = USLOSS_DISK_SEEK;
+				// control.reg1 = (void*)(long)temp->track;
+				// resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				// result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				// pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+			// }
+			
 			// Perform disk operation. 		//	if ( result == USLOSS_DEV_OK ) 
 			switch(temp->diskOp ){
 				case USLOSS_DISK_SIZE:	
@@ -672,10 +671,21 @@ static int DiskDriver(char *arg){
 					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]",curTrack,curSector);
 					curTrack = curTrack+1%DiskTable[temp->unit].disk_track_size;
 					curSector = 0;
-					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
+				
+					//Advance disk to new track if wrap around
+					if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+						control.opr = USLOSS_DISK_SEEK;
+						control.reg1 = (void*)(long)curTrack;
+						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+						pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+					 //curDbuffPtr = temp->dbuff;
+					}
+						pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				}
 				
 				// Set control parameters for USLOSS_DeviceOutput
+				control.opr = temp->diskOp;
 				control.reg1 = (void*)(long)curSector;
 				control.reg2 = curDbuffPtr;
 				
