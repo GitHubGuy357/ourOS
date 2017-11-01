@@ -420,9 +420,9 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	semvReal(DiskTable[unit].semID);
 	
 	// Block Calling Process.
-	pDebug(1," <- diskWriteReal(): Before block on disk[%d.%d] calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
+	pDebug(1," <- diskWriteReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
-	pDebug(3," <- diskWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
+	pDebug(1," <- diskWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
 }
 
@@ -605,23 +605,33 @@ static int DiskDriver(char *arg){
 		if(DiskTable[unit].DriveQueueL.count > 0 || DiskTable[unit].DriveQueueR.count > 0){
 			// If Drive has a request in Queue, determine which request we are furfilling.
 			if(DiskTable[unit].drive_seek_dir == 1){
-				if(DiskTable[unit].DriveQueueR.count != 0) // Added for test14, otherwise peek is null and current queue is empty and other queue is 1
+				if(DiskTable[unit].DriveQueueR.count != 0){
+					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
 					temp = peek(DiskTable[unit].DriveQueueR);
+				}else
+					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n");
 			}else if(DiskTable[unit].drive_seek_dir == 0){
-				if(DiskTable[unit].DriveQueueL.count != 0)  // Added for test14, otherwise peek is null and current queue is empty and other queue is 1
+				if(DiskTable[unit].DriveQueueL.count != 0)  {
+					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
 					temp = peek(DiskTable[unit].DriveQueueL);
+				}else
+					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n"); //continue;
 			}else
 				pDebug(0,"\n\n\n\nBAD TOUCH - Request to drive_seek_dir[%d]\n\n\n\n",DiskTable[unit].drive_seek_dir);
 			
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
 			
+			// Update Disk current track/sector for scheduling when inserting into queue.
+			DiskTable[temp->unit].currentSector = temp->first;
+			DiskTable[temp->unit].currentTrack =  temp->track;
+				
 			//Advance disk to location if read/write op
 			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
 				control.opr = USLOSS_DISK_SEEK;
 				control.reg1 = (void*)(long)temp->track;
 				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+				pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
 			}
 			
 			// Temp variables, required or pointer points incorrectly to tests.
@@ -643,11 +653,11 @@ static int DiskDriver(char *arg){
 						control.reg1 = (void*)(long)curTrack;
 						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-						pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+						pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
 					}
 					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				}
-				pDebug(1," <- DiskDriver(): writing...Track[%d] Sector[%d]",curTrack,curSector);
+
 				// Set control parameters for USLOSS_DeviceOutput
 				control.opr = temp->diskOp;
 				control.reg1 = (void*)(long)curSector; //
@@ -660,6 +670,8 @@ static int DiskDriver(char *arg){
 				// Make request
 				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				
+				pDebug(1," <- DiskDriver(): waitDevice Before --- pid[%d] writing...curTrack[%d] curSector[%d] curDbuff[%p]\n",temp->pid,curTrack,curSector,curDbuffPtr);
+				
 				// Wait for disk inturrupt.
 				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
 				
@@ -668,7 +680,7 @@ static int DiskDriver(char *arg){
 				curSector++;
 				curSectorsToWrite--;
 				
-				pDebug(1," <- DiskDriver(): After waitDevice [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",result,status,resultD);
+				pDebug(1," <- DiskDriver(): waitDevice After --- pid[%d] [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",temp->pid,result,status,resultD);
 			}
 			
 			if(debugVal>1){
@@ -701,7 +713,7 @@ static int DiskDriver(char *arg){
 		}	
 		
 		// Unblock Calling Process
-		pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
+		pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] firstSector[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
 		
 		semvReal(temp->semID);
 
