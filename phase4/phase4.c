@@ -82,7 +82,6 @@ void start3(void){
 		DiskTable[i].drive_seek_dir = -1;
 		intialize_queue2(&DiskTable[i].DriveQueueR);
 		intialize_queue2(&DiskTable[i].DriveQueueL);
-
 	}
 	
 	// Initialize Sleeplist
@@ -310,13 +309,6 @@ int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
 	ProcTable[getpid()%MAXPROC].sectors = sectors;
 	ProcTable[getpid()%MAXPROC].unit = unit;
 
-	// if(DiskTable[unit].DriveQueueL.count == 0 && DiskTable[unit].DriveQueueR.count ==0){
-		// if (track > DiskTable[unit].drive_seek_dir)
-			// DiskTable[unit].drive_seek_dir = 1;
-		// else
-			// DiskTable[unit].drive_seek_dir = 0;
-	// }
-	
 	// Push Request on Drive Queue
 	if(DiskTable[unit].drive_seek_dir == 1){
 		pDebug(1," <- diskWriteReal(): Seeking RIGHT...Pushing Track[%d], current Track[%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
@@ -395,14 +387,7 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	ProcTable[getpid()%MAXPROC].first = first;
 	ProcTable[getpid()%MAXPROC].sectors = sectors;
 	ProcTable[getpid()%MAXPROC].unit = unit;
-	
-	// if(DiskTable[unit].DriveQueueL.count == 0 && DiskTable[unit].DriveQueueR.count ==0){
-		// if (track > DiskTable[unit].drive_seek_dir)
-			// DiskTable[unit].drive_seek_dir = 1;
-		// else
-			// DiskTable[unit].drive_seek_dir = 0;
-	// }
-	
+
 	// Push Request on Drive Queue
 	if(DiskTable[unit].drive_seek_dir == 1){
 		pDebug(1," <- diskWriteReal(): Seeking RIGHT...Pushing Track[%d], current Track[%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
@@ -631,32 +616,12 @@ static int DiskDriver(char *arg){
 			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
 			
 			//Advance disk to location if read/write op
-			// if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
-				// control.opr = USLOSS_DISK_SEEK;
-				// control.reg1 = (void*)(long)temp->track;
-				// resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
-				// result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				// pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
-			// }
-			
-			// Perform disk operation. 		//	if ( result == USLOSS_DEV_OK ) 
-			switch(temp->diskOp ){
-				case USLOSS_DISK_SIZE:	
-				break;
-				
-				case USLOSS_DISK_WRITE:
-					control.opr = temp->diskOp;
-					pDebug(1, " <- DiskDriver(): Process[%d] writing[%d] sectors to disk[%d] with seekDir[%d] and track[%d] sector[%d]\n",temp->pid,temp->sectors, temp->unit,DiskTable[unit].drive_seek_dir,temp->track,temp->first);
-				break;
-
-				case USLOSS_DISK_READ:
-					control.opr = temp->diskOp;
-					pDebug(1, " <- DiskDriver(): Process[%d] reading[%d] sectors from disk[%d] with seekDir[%d] and track[%d] sector[%d]\n",temp->pid,temp->sectors, temp->unit,DiskTable[temp->unit].drive_seek_dir,temp->track,temp->first);
-				break;
-				
-				default:
-					pDebug(0,"\n\nEMERGENCY: SHOULD NOT BE HERE\n\n");
-					break;
+			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+				control.opr = USLOSS_DISK_SEEK;
+				control.reg1 = (void*)(long)temp->track;
+				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
 			}
 			
 			// Temp variables, required or pointer points incorrectly to tests.
@@ -667,9 +632,9 @@ static int DiskDriver(char *arg){
 
 			// Loop to Write/Read through each sector requested
 			while(curSectorsToWrite > 0){
-				if(curSector +1== DiskTable[temp->unit].disk_track_size){
+				if(curSector == DiskTable[temp->unit].disk_track_size){
 					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]",curTrack,curSector);
-					curTrack = curTrack+1%DiskTable[temp->unit].disk_track_size;
+					curTrack = curTrack;//curTrack+1%DiskTable[temp->unit].disk_track_size;
 					curSector = 0;
 				
 					//Advance disk to new track if wrap around
@@ -679,14 +644,13 @@ static int DiskDriver(char *arg){
 						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
 						pDebug(2," <- DiskDriver(): Seek Status = [%d] Track[%d] First[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
-					 //curDbuffPtr = temp->dbuff;
 					}
-						pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
+					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				}
-				
+				pDebug(1," <- DiskDriver(): writing...Track[%d] Sector[%d]",curTrack,curSector);
 				// Set control parameters for USLOSS_DeviceOutput
 				control.opr = temp->diskOp;
-				control.reg1 = (void*)(long)curSector;
+				control.reg1 = (void*)(long)curSector; //
 				control.reg2 = curDbuffPtr;
 				
 				// Update Disk current track/sector for scheduling when inserting into queue.
