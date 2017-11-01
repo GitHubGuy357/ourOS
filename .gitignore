@@ -3,7 +3,7 @@
 *.tgz
 *.in
 *.out
-*.txt
+/*.txt
 /testResults_ours
 /resultsfile
-disk??
+/disk??
