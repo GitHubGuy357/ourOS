@@ -13,19 +13,28 @@
 
 int     debugVal = 0; // 0 == off to 3 == most debug info
 
+/*****************************************************
+*             Globals
+*****************************************************/
 void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
 int 	mainSemaphore;
 int		i;
+procTable ProcTable[MAXPROC];
+diskTable DiskTable[USLOSS_DISK_UNITS];
+termTable TermTable[USLOSS_TERM_UNITS];
+termTable TermReadTable[USLOSS_TERM_UNITS];
+termTable TermWriteTable[USLOSS_TERM_UNITS];
+MinQueue SleepList;
+
+/*****************************************************
+*             ProtoTypes
+*****************************************************/
 static int	ClockDriver(char *);
 static int	DiskDriver(char *);
 static int	TermDriver(char *);
-procTable ProcTable[MAXPROC];
-diskTable DiskTable[USLOSS_DISK_UNITS];
-MinQueue SleepList;
-
-
+static int	TermDriverRead(char *);
+static int	TermDriverWrite(char *);
 char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
-int Terminals[USLOSS_TERM_UNITS*3];
 
 void start3(void){
 	pDebug(2," <- start3(): start\n");
@@ -77,11 +86,39 @@ void start3(void){
 		DiskTable[i].currentOp = -1;
 		DiskTable[i].currentTrack = -1;
 		DiskTable[i].currentSector = -1;
-		DiskTable[i].semID = semcreateReal(0);
-		DiskTable[i].mboxID = MboxCreate(0,0);
+		DiskTable[i].semID = -1;
+		DiskTable[i].mboxID = -1;
 		DiskTable[i].drive_seek_dir = -1;
 		intialize_queue2(&DiskTable[i].DriveQueueR);
 		intialize_queue2(&DiskTable[i].DriveQueueL);
+	}
+	
+	// Initialize Term Table
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		TermTable[i].pid = -1;
+		TermTable[i].currentOp = -1;
+		TermTable[i].semID = -1;
+		TermTable[i].mboxID = -1;
+		intialize_queue2(&TermTable[i].requestQueue);
+	}
+	
+	// Initialize TermRead Table
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		TermReadTable[i].pid = -1;
+		TermTable[i].type[0] = '\0';
+		TermReadTable[i].currentOp = -1;
+		TermReadTable[i].semID = -1;
+		TermReadTable[i].mboxID = -1;
+		intialize_queue2(&TermReadTable[i].requestQueue);
+	}
+	
+	// Initialize TermWrite Table
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		TermWriteTable[i].pid = -1;
+		TermWriteTable[i].currentOp = -1;
+		TermWriteTable[i].semID = -1;
+		TermWriteTable[i].mboxID = -1;
+		intialize_queue2(&TermWriteTable[i].requestQueue);
 	}
 	
 	// Initialize Sleeplist
@@ -118,7 +155,6 @@ void start3(void){
         sprintf(buf, "%d", i);
 		sprintf(name, "DiskDriver %d", i);
         pid = fork1(name, DiskDriver, buf, USLOSS_MIN_STACK, 2);
-		//DiskDrives[i] = pid;
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create disk driver %d\n", i);
             USLOSS_Halt(1);
@@ -131,11 +167,10 @@ void start3(void){
     /*
      * Create terminal device drivers.
      */
-    for (i = 0; i < USLOSS_TERM_UNITS*3; i++) {
+    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
         sprintf(buf, "%d", i);
 		sprintf(name, "TermDriver %d", i);
         pid = fork1(name, TermDriver, buf, USLOSS_MIN_STACK, 2);
-		Terminals[i] = pid;
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create term driver %d\n", i);
             USLOSS_Halt(1);
@@ -143,6 +178,34 @@ void start3(void){
 		sempReal(mainSemaphore);
     }
 
+	 /*
+     * Create terminal read device drivers.
+     */
+    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+        sprintf(buf, "%d", i);
+		sprintf(name, "TermDriverRead %d", i);
+        pid = fork1(name, TermDriverRead, buf, USLOSS_MIN_STACK, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term driverRead %d\n", i);
+            USLOSS_Halt(1);
+        }
+		sempReal(mainSemaphore);
+    }
+	
+		 /*
+     * Create terminal write device drivers.
+     */
+    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+        sprintf(buf, "%d", i);
+		sprintf(name, "TermDriverWrite %d", i);
+        pid = fork1(name, TermDriverWrite, buf, USLOSS_MIN_STACK, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create term driverRead %d\n", i);
+            USLOSS_Halt(1);
+        }
+		sempReal(mainSemaphore);
+    }
+	
     /*
      * Create first user-level process and wait for it to finish.
      * These are lower-case because they are not system calls;
@@ -175,10 +238,24 @@ void start3(void){
 	}
 
 	// zap terminals
-	for (i=0;i<USLOSS_TERM_UNITS*3;i++){
-		pDebug(2," <- zapping terminal[%d] pid[%d]...\n",i,Terminals[i]);
-		semvReal(ProcTable[Terminals[i]].semID);
-		zap(Terminals[i]);  // clock driver
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		pDebug(2," <- zapping terminal[%d] pid[%d]...\n",i,TermTable[i].pid);
+		semvReal(TermTable[i].semID);
+		zap(TermTable[i].pid);
+	}
+	
+	// zap read terminals
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		pDebug(2," <- zapping read terminal[%d] pid[%d]...\n",i,TermReadTable[i].pid);
+		semvReal(TermReadTable[i].semID);
+		zap(TermReadTable[i].pid);
+	}
+	
+	// zap write terminals
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		pDebug(2," <- zapping write terminal[%d] pid[%d]...\n",i,TermWriteTable[i].pid);
+		semvReal(TermWriteTable[i].semID);
+		zap(TermWriteTable[i].pid);
 	}
 	
     // eventually, at the end:
@@ -512,12 +589,39 @@ int TermRead(char *buff, int bsize, int unit_id, int *nread){
 } 
 
 void termRead(USLOSS_Sysargs *args){
-		pDebug(2," <- diskSizeReal(): start \n");
-	
+	pDebug(2," <- termRead(): start \n");
+	int returnVal = termReadReal(args->arg3,(long)args->arg2,(long)args->arg1);
+	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].t_buff;
+	args->arg2 = (void*)(long)ProcTable[getpid()%MAXPROC].t_bsize;
+	args->arg4 = (void*)(long)returnVal;
 }
 
-int termReadReal(){
-	return -1;
+int termReadReal(int unit, int size, char *buffer){
+	
+	// Check if device call is valid range
+	if(unit <0 || unit >USLOSS_TERM_UNITS || size < 1)
+		return -1;
+	
+	// Get calling process in ProcTable
+	ProcTable[getpid()%MAXPROC].pid = getpid();
+	ProcTable[getpid()%MAXPROC].termOp = USLOSS_TERM_READ;
+	ProcTable[getpid()%MAXPROC].t_buff = buffer;
+	ProcTable[getpid()%MAXPROC].t_bsize = size;
+	ProcTable[getpid()%MAXPROC].t_unit = unit;
+	
+	// Push Request on Term Queue
+	pDebug(1," <- termReadReal(): Pushing Request to term[%d] size[%d] buffer[%p]",unit,size,buffer);
+	push(&TermTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// Wake up terminal.
+	pDebug(1,"\n <- termReadReal(): Before wake terminal[%d]\n",unit);
+	semvReal(TermTable[unit].semID);
+	
+	// Block Calling Process.
+	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
+	sempReal(ProcTable[getpid()%MAXPROC].semID);
+	pDebug(1," <- termReadReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
+	return 0;
 }
 
 /******************************************************************************
@@ -586,13 +690,15 @@ static int DiskDriver(char *arg){
 	
 	// Initialize Disk Unit from arg
 	DiskTable[unit].pid = getpid();
+	DiskTable[unit].semID = semcreateReal(0);
+	DiskTable[unit].mboxID = MboxCreate(0,0);
 	DiskTable[unit].currentOp = -1;
 	DiskTable[unit].currentTrack = 0;
 	DiskTable[unit].currentSector = 0;
 	DiskTable[unit].drive_seek_dir = 1; // Start seeking right.
 	DiskTable[unit].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
 	DiskTable[unit].disk_track_size = USLOSS_DISK_TRACK_SIZE;
-	DiskTable[unit].disk_size = disk_size_req; // Makes no sense, gathered from testcase.
+	DiskTable[unit].disk_size = disk_size_req;
   
    // Infinite loop until we are zap'd
     while(! isZapped()) {
@@ -731,27 +837,109 @@ static int TermDriver(char *arg){
     int result = 0;
     int status = 0;
 	int unit = atoi(arg);
+	procPtr temp = NULL;
+	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
 	enableInterrupts();
 	
+	// Initialize Term Unit from arg
+	TermTable[unit].pid = getpid();
+	sprintf(TermTable[unit].type,"Terminal %d",unit);
+	TermTable[unit].semID = semcreateReal(0);
+	TermTable[unit].mboxID = MboxCreate(0,0);
+
 
     // Infinite loop until we are zap'd
     while(! isZapped()) {
-		sempReal(ProcTable[Terminals[unit]].semID);
+		
+		pDebug(1," <- TermDriver(): Before block on Term Unit[%d] \n",unit);
+		sempReal(TermTable[unit].semID);
+		
+		if(TermTable[unit].requestQueue.count > 0){
+			temp = pop(&TermTable[unit].requestQueue);
+			
+			//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+			if (result != 0) {
+				return 0;
+			}
+			
+		// Unblock Calling Process
+		pDebug(1," <- TermDriver(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_bsize,temp->t_buff);
+		
+		semvReal(temp->semID);
+		}
+			
+			
+
+	}
+	
+	pDebug(2," <- TermDriver(): end \n");
+	return status;
+}
+
+static int TermDriverRead(char *arg){
+    pDebug(2," <- TermDriverRead(): start \n");
+    int result = 0;
+    int status = 0;
+	int unit = atoi(arg);
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+	// Initialize TermRead Unit from arg
+	TermReadTable[unit].pid = getpid();
+	sprintf(TermReadTable[unit].type,"Reader %d",unit);
+	TermReadTable[unit].semID = semcreateReal(0);
+	TermReadTable[unit].mboxID = MboxCreate(0,0);
+
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		
+		pDebug(1," <- TermDriver(): Before block on Term Read Unit[%d] \n",unit);
+		sempReal(TermReadTable[unit].semID);
+		
 		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
 		if (result != 0) {
 			return 0;
 		}
-		/*
-		 * Compute the current time and wake up any processes
-		 * whose time has come.
-		 */
-	//	while(1){
-	//	}
 	}
 	
-	pDebug(2," <- TermDriver(): end \n");
+	pDebug(2," <- TermDriverRead(): end \n");
+	return status;
+}
+
+static int TermDriverWrite(char *arg){
+    pDebug(2," <- TermDriverWrite(): start \n");
+    int result = 0;
+    int status = 0;
+	int unit = atoi(arg);
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+	// Initialize TermRead Unit from arg
+	TermWriteTable[unit].pid = getpid();
+	sprintf(TermWriteTable[unit].type,"Writer %d",unit);
+	TermWriteTable[unit].semID = semcreateReal(0);
+	TermWriteTable[unit].mboxID = MboxCreate(0,0);
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		
+		pDebug(1," <- TermDriver(): Before block on Term Write Unit[%d] \n",unit);
+		sempReal(TermWriteTable[unit].semID);
+		
+		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+		if (result != 0) {
+			return 0;
+		}
+	}
+	
+	pDebug(2," <- TermDriverWrite(): end \n");
 	return status;
 }
 
@@ -852,14 +1040,8 @@ int check_kernel_mode(char *procName){
 
 /*****************************************************************************
  *     dp4 - Used to output a formatted version of the process table to the 
- *		usloss console
+ *		     usloss console
  *****************************************************************************/
- 	int diskOp;
-	void *dbuff;
-	int track;
-	int first;
-	int sectors;
-	int unit;
 void dp4(){
     USLOSS_Console("\n------------------------------------------------PROCESS TABLE----------------------------------------------\n");
     USLOSS_Console(" PID  Name     Status S.At    S.Dur.    S.WakeAt    SemID MboxID diskOp dbuff      track first sectors unit\n");
@@ -868,6 +1050,44 @@ void dp4(){
 		if(ProcTable[i].pid != -1){ // Need to make legit determination for printing process
 			USLOSS_Console("%-1s[%-2d] %s[%-6s] %-0s[%d] %-2s[%-2d] %-3s[%-2d] %-5s[%-2d] %-7s[%-2d] %-1s[%-2d] %-2s[%-2d] %-1s[%-2d] %-1s[%-2d] %-1s[%-2d] %-1s[%-2d] %-3s[%-2d]\n","",ProcTable[i].pid,"", ProcTable[i].name,"",ProcTable[i].status,"",ProcTable[i].sleepAt,"",ProcTable[i].sleepDuration,"",ProcTable[i].sleepWakeAt,"",ProcTable[i].semID,"",ProcTable[i].mboxID,"",ProcTable[i].diskOp,"",&ProcTable[i].dbuff,"",ProcTable[i].track,"",ProcTable[i].first,"",ProcTable[i].sectors,"",ProcTable[i].unit);
 		}	  
+	}
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");    
+}
+
+/*****************************************************************************
+ *     dd4 - Used to output a formatted version of the disk table to the 
+ *		     usloss console
+ *****************************************************************************/
+void dd4(){
+    USLOSS_Console("\n------------------------------------------------DISK TABLE----------------------------------------------\n");
+    USLOSS_Console(" PID   c.Op   c.Track   c.Sector   semID   mboxID   QueueR   QueueL\n");
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");
+	for( i= 0; i< USLOSS_DISK_UNITS;i++){
+		if(DiskTable[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %-1s[%-2d] %-2s[%-2d] %-5s[%-2d] %-6s[%-2d] %-3s[%-2d] %-3s[%-2d] %-4s[%-2d]\n","",DiskTable[i].pid,"", DiskTable[i].currentOp,"",DiskTable[i].currentTrack,"",DiskTable[i].currentSector,"",DiskTable[i].semID,"",DiskTable[i].mboxID,"",DiskTable[i].DriveQueueR.count,"",DiskTable[i].DriveQueueL.count);
+		}	  
+	}
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");    
+}
+
+/*****************************************************************************
+ *     dt4 - Used to output a formatted version of the term table to the 
+ *		     usloss console
+ *****************************************************************************/
+void dt4(){
+    USLOSS_Console("\n------------------------------------------------TERM TABLE----------------------------------------------\n");
+    USLOSS_Console(" PID   c.Op   semID   mboxID   QueueCount   Type\n");
+    USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");
+	for( i= 0; i< USLOSS_TERM_UNITS;i++){
+		if(TermTable[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %-1s[%-2d] %-2s[%-2d] %-3s[%-2d] %-3s[%-2d] %-8s[%-10s]\n","",TermTable[i].pid,"", TermTable[i].currentOp,"",TermTable[i].semID,"",TermTable[i].mboxID,"",TermTable[i].requestQueue.count,"",TermTable[i].type);
+		}
+		if(TermReadTable[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %-1s[%-2d] %-2s[%-2d] %-3s[%-2d] %-3s[%-2d] %-8s[%-10s]\n","",TermReadTable[i].pid,"", TermReadTable[i].currentOp,"",TermReadTable[i].semID,"",TermReadTable[i].mboxID,"",TermReadTable[i].requestQueue.count,"",TermReadTable[i].type);
+		}
+		if(TermWriteTable[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %-1s[%-2d] %-2s[%-2d] %-3s[%-2d] %-3s[%-2d] %-8s[%-10s]\n","",TermWriteTable[i].pid,"", TermWriteTable[i].currentOp,"",TermWriteTable[i].semID,"",TermWriteTable[i].mboxID,"",TermWriteTable[i].requestQueue.count,"",TermWriteTable[i].type);
+		}		
 	}
     USLOSS_Console("-----------------------------------------------------------------------------------------------------------\n");    
 }

@@ -39,6 +39,8 @@ extern  int  start4(char * name);
 
 // More prototypes
 void dp4();
+void dd4();
+void dt4();
 void intializeSysCalls();
 int check_kernel_mode(char *procName);
 int enableInterrupts();
@@ -82,6 +84,10 @@ typedef struct procTable {
 	int first;
 	int sectors;
 	int unit;
+	int termOp;
+	void *t_buff;
+	int t_bsize;
+    int t_unit;
 } procTable; 
 
 typedef struct diskTable *diskTablePtr;
@@ -100,9 +106,20 @@ typedef struct diskTable {
 	int drive_seek_dir; // 0 = left, 1 = right
 } diskTable; 
 
+typedef struct termTable *termTablePtr;
+typedef struct termTable {
+    int pid;
+	char type[20];
+	int currentOp;
+	int semID;
+	int mboxID;
+	MinQueue requestQueue;
+} termTable; 
+
 #define ERR_INVALID         -1
 #define ERR_OK              0
 #define USLOSS_DISK_SIZE	4
-
+#define USLOSS_TERM_WRITE   1
+#define USLOSS_TERM_READ    2
 
 #endif /* _PHASE4_H */
