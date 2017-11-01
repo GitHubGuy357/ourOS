@@ -608,7 +608,7 @@ static int DiskDriver(char *arg){
 				if(DiskTable[unit].DriveQueueR.count != 0){
 					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
 					temp = peek(DiskTable[unit].DriveQueueR);
-				}else
+				}else 
 					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n");
 			}else if(DiskTable[unit].drive_seek_dir == 0){
 				if(DiskTable[unit].DriveQueueL.count != 0)  {
