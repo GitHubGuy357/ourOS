@@ -59,9 +59,9 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit);
 void diskSize(USLOSS_Sysargs *args);
 int diskSizeReal(int unit);
 void termRead(USLOSS_Sysargs *args);
-int termReadReal();
+int termReadReal(int unit, int size, char *buff);
 void termWrite(USLOSS_Sysargs *args);
-int termWriteReal();
+int termWriteReal(int unit, int size, char *buff);
 
 // Structures
 typedef struct procTable *procPtr;
@@ -84,7 +84,7 @@ typedef struct procTable {
 	int first;
 	int sectors;
 	int unit;
-	int termOp;
+	int t_Op;
 	void *t_buff;
 	int t_buff_size;
     int t_unit;

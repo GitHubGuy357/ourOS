@@ -29,7 +29,7 @@ do
 		#echo "Entry=$entry FileName=$filename Extension=$extension"
 		resultfile="$output_folder/$filename.txt"
 		echo -e "Making...$filename"
-		make $filename
+		make -s $filename
 		if [ -e "$filename" ]; then
 			./$filename > $resultfile
 			if [ $? -eq 0 ];then

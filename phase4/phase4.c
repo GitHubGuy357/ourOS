@@ -332,7 +332,7 @@ static int DiskDriver(char *arg){
 			}else
 				pDebug(0,"\n\n\n\nBAD TOUCH - Request to drive_seek_dir[%d]\n\n\n\n",DiskTable[unit].drive_seek_dir);
 			
-			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
+			pDebug(1," <- DiskDriver(): Disk[%d] Request = [%s]  from calling pid[%d]...\n",temp->unit,getOp(temp->diskOp), temp->pid);
 			
 			// Update Disk current track/sector for scheduling when inserting into queue.
 			DiskTable[temp->unit].currentSector = temp->first;
@@ -344,7 +344,7 @@ static int DiskDriver(char *arg){
 				control.reg1 = (void*)(long)temp->track;
 				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+				pDebug(1," <- DiskDriver(): Disk[%d] Seeking...Track[%d] FirstSector[%d] Buffer[%p]...\n",temp->unit,temp->track,temp->first,temp->dbuff);
 			}
 			
 			// Temp variables, required or pointer points incorrectly to tests.
@@ -356,9 +356,10 @@ static int DiskDriver(char *arg){
 			// Loop to Write/Read through each sector requested
 			while(curSectorsToWrite > 0){
 				if(curSector == DiskTable[temp->unit].disk_track_size){
-					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]\n",curTrack,curSector);
-					curTrack = curTrack;//curTrack+1%DiskTable[temp->unit].disk_track_size;
+					pDebug(1," <- DiskDriver(): Disk[%d] Track Wrap around....curTrack[%d] & curSector[%d]",temp->unit, curTrack,curSector);
+					curTrack = curTrack+1%DiskTable[temp->unit].disk_track_size; //curTrack;
 					curSector = 0;
+					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				
 					//Advance disk to new track if wrap around
 					if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
@@ -366,9 +367,11 @@ static int DiskDriver(char *arg){
 						control.reg1 = (void*)(long)curTrack;
 						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-						pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+						pDebug(1," <- DiskDriver(): Disk[%d] Seeking...Track[%d] Sector[%d] Buffer[%p]...\n",temp->unit,curTrack,curSector,temp->sectors,temp->dbuff);
 					}
-					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
+					// Update Disk current track/sector for scheduling when inserting into queue.
+					DiskTable[temp->unit].currentSector = curSector;
+					DiskTable[temp->unit].currentTrack =  curTrack;	
 				}
 
 				// Set control parameters for USLOSS_DeviceOutput
@@ -383,7 +386,7 @@ static int DiskDriver(char *arg){
 				// Make request
 				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
 				
-				pDebug(1," <- DiskDriver(): waitDevice Before --- pid[%d] writing...curTrack[%d] curSector[%d] curDbuff[%p]\n",temp->pid,curTrack,curSector,curDbuffPtr);
+				pDebug(1," <- DiskDriver(): Disk[%d] waitDevice pid[%d] Before %s...curTrack[%d] curSector[%d] curDbuff[%p]\n",temp->unit,temp->pid,getOp(temp->diskOp),curTrack,curSector,curDbuffPtr);
 				
 				// Wait for disk inturrupt.
 				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
@@ -399,7 +402,7 @@ static int DiskDriver(char *arg){
 				curSector++;
 				curSectorsToWrite--;
 				
-				pDebug(1," <- DiskDriver(): waitDevice After --- pid[%d] [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",temp->pid,result,status,resultD);
+				pDebug(1," <- DiskDriver(): waitDevice pid[%d] After [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",temp->pid,result,status,resultD);
 			}
 			
 			if(debugVal>1){
@@ -441,9 +444,9 @@ static int TermDriver(char *arg){
 	int resultD = 0;
     int status = 0;
 	int unit = atoi(arg);
-	int control = 0;
 	char charReceived;
 	int index = 0;
+	int control = 0;
 	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
@@ -463,12 +466,12 @@ static int TermDriver(char *arg){
     while(! isZapped()) {
 		//sempReal(TermTable[unit].semID);
 		charReceived='_';
-		pDebug(1," <- TermDriver(): Term[%d], Before waitDevice\n",unit);
+		//pDebug(1," <- TermDriver(): Term[%d] before waitDevice\n",unit);
 		result = waitDevice(USLOSS_TERM_DEV, unit, &TermReadTable[unit].t_controlStatus);
 
 		// if result is not 0 process probly zapped
 		if (result != 0) {
-			pDebug(1," <- TermDriver(): ------------TERM [%d] QUIT WITH STATUSB [%d]\n",unit,result);
+			pDebug(1," <- TermDriver(): ------TERM[%d] QUIT WITH STATUS [%d]------\n",unit,result);
 			return 0;
 		}
 		
@@ -487,16 +490,23 @@ static int TermDriver(char *arg){
 				index=0;
 				
 				// Wake up TermReader.
-				pDebug(1,"\n <- termReadReal(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
+				pDebug(1,"\n <- TermDriver(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
 				semvReal(TermReadTable[unit].semID);
 			}
 			
 			if(TermTable[unit].lineNumber == MAX_LINE_BUFFER){
 				
 				// Wake up TermReader.
-				pDebug(1,"\n <- termReadReal(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
+				pDebug(1,"\n <- TermDriver(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
 				semvReal(TermReadTable[unit].semID);
 				sempReal(TermTable[unit].semID);
+			}
+			
+			if(USLOSS_TERM_STAT_XMIT(TermWriteTable[unit].t_controlStatus) == USLOSS_DEV_READY){
+			//	pDebug(1,"\n <- TermDriver(): Before wake TermWriter[%d] on semID[%d]\n",unit,TermWriteTable[unit].semID);
+			// Unblock here unlike TermRead?
+			//	semvReal(TermWriteTable[unit].semID);
+
 			}
 		}
 	}
@@ -506,11 +516,8 @@ static int TermDriver(char *arg){
 
 static int TermReader(char *arg){
     pDebug(2," <- TermReader(): start \n");
-    int result = 0;
-	int resultD = 0;
     int status = 0;
 	int unit = atoi(arg);
-	int control = 0;
 	procPtr temp = NULL;
 	
     // Let the parent know we are running and enable interrupts.
@@ -528,9 +535,9 @@ static int TermReader(char *arg){
 		pDebug(1," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
 		
 		sempReal(TermReadTable[unit].semID);
-		pDebug(1," <- TermReader(): After block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
+		pDebug(1," <- TermReader(): After block on TermReader Unit[%d] semID[%d] requestCount[%d]\n",unit,TermReadTable[unit].semID,TermReadTable[unit].requestQueue.count);
 
-		if(TermReadTable[unit].requestQueue.count > 0){
+		if(TermReadTable[unit].requestQueue.count > 0 && peek(TermReadTable[unit].requestQueue)->t_Op == USLOSS_TERM_READ){
 			temp = pop(&TermReadTable[unit].requestQueue);
 			
 			pDebug(1,"\n <- TermReader(): Before TermReader[%d] attempts to read[%d] characters\n",unit,temp->t_buff_size);
@@ -556,8 +563,10 @@ static int TermReader(char *arg){
 			if(TermTable[unit].lineNumber == MAX_LINE_BUFFER-1)
 				semvReal(TermTable[unit].semID);
 			
-			tempBuff[temp->t_buff_size] = '\n';
-			temp->t_buff_size = strlen(temp->t_buff);
+			// Terminate string depending on line ended or requested less characters than a line.
+			tempBuff[temp->t_buff_size] = '\0';
+			pDebug(1," <- TermReader(): t_buff_size = [%d] strlen(tempBuff) = [%d] buffMsg = [%s]\n",temp->t_buff_size,strlen(tempBuff),tempBuff);
+			temp->t_buff_size = strlen(tempBuff);
 			
 			// Unblock Calling Process
 			pDebug(1," <- TermReader(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff);
@@ -573,6 +582,7 @@ static int TermWriter(char *arg){
     pDebug(2," <- TermWriter(): start \n");
     int result = 0;
     int status = 0;
+	int resultD = 0;
 	int unit = atoi(arg);
 	
     // Let the parent know we are running and enable interrupts.
@@ -588,14 +598,48 @@ static int TermWriter(char *arg){
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		
+		// Block TermWriter waiting for input
 		pDebug(1," <- TermWriter(): Before block on TermWriter Unit[%d] \n",unit);
 		sempReal(TermWriteTable[unit].semID);
 		
-		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
-		if (result != 0) {
+		// If zapped while blocked return
+		if (isZapped()) {
 			return 0;
 		}
+			
+		// pDebug(1," <- TermWriter(): After block on TermWriter Unit[%d] semID[%d] requestCount[%d]\n",unit,TermWriteTable[unit].semID,TermWriteTable[unit].requestQueue.count);
 		
+		// // Inform USLOSS we are going to write
+        // TermWriteTable[unit].t_controlStatus = 0;
+        // TermWriteTable[unit].t_controlStatus = USLOSS_TERM_CTRL_XMIT_INT((long)TermWriteTable[unit].t_controlStatus);
+        // resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)TermWriteTable[unit].t_controlStatus);
+		
+
+		// if(TermWriteTable[unit].requestQueue.count > 0 && peek(TermWriteTable[unit].requestQueue)->t_Op == USLOSS_TERM_WRITE){
+			// procPtr temp = pop(&TermWriteTable[unit].requestQueue);
+			// int bytesWritten = 0;
+			// char* writeBuffer = temp->t_buff;
+			// while(bytesWritten < temp->t_buff_size){
+				// temp->t_controlStatus = 0;
+				// temp->t_controlStatus =  USLOSS_TERM_CTRL_CHAR(temp->t_controlStatus, writeBuffer[i]);
+				// temp->t_controlStatus = USLOSS_TERM_CTRL_XMIT_INT(temp->t_controlStatus);
+				// temp->t_controlStatus =  USLOSS_TERM_CTRL_XMIT_CHAR(temp->t_controlStatus);
+				// bytesWritten++;
+				
+				
+				// //writeBuffer++;
+			// }
+			
+			// temp->t_buff_size = bytesWritten;
+			
+			// // Unblock Calling Process
+			// pDebug(1," <- TermWriter(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff);
+			// semvReal(temp->semID);
+			
+			
+			// //result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+
+		// }
 	}
 	
 	pDebug(2," <- TermWriter(): end \n");
@@ -748,7 +792,7 @@ int diskReadReal(void *dbuff, int track, int first, int sectors, int unit){
 	pDebug(1,"\n <- diskReadReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
 	
 	// Check if arguments are bad
-	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size)
+	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size || (track == DiskTable[unit].disk_track_size && first +sectors > DiskTable[unit].disk_track_size))
 		return -1;
 	
 	// Get calling process in ProcTable
@@ -827,7 +871,7 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	pDebug(1," <- diskWriteReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
 	
 	// Check if arguments are bad
-	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || (track == DiskTable[unit].disk_track_size && first +sectors > DiskTable[unit].disk_track_size))
+	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size || (track == DiskTable[unit].disk_track_size && first +sectors > DiskTable[unit].disk_track_size))
 		return -1;
 	
 	// Get calling process in ProcTable
@@ -840,22 +884,21 @@ int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	ProcTable[getpid()%MAXPROC].unit = unit;
 
 	// Push Request on Drive Queue
+	pDebug(1," <- diskWriteReal(): Requesting Track[%d] Sector[%d] Sectors[%d]. Current Track is [%d]", track,first,sectors, DiskTable[unit].currentTrack);
 	if(DiskTable[unit].drive_seek_dir == 1){
-		pDebug(1," <- diskWriteReal(): Seeking RIGHT...Pushing Track[%d], current Track[%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
 		if (track >= DiskTable[unit].currentTrack){
 			pDebug(1," disk can seek now.\n");
 			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
 		}else{
-			pDebug(1," disk track added alternate queue.\n");
+			pDebug(1," disk can not seek backwards, add request to alternate queue.\n");
 			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
 		}
 	}else{
-		pDebug(1," <- diskWriteReal(): Seeking LEFT...Pushing Track[%d], current Track[%d]", track,DiskTable[unit].DriveQueueR.count, DiskTable[unit].currentTrack);
 		if (track <= DiskTable[unit].currentTrack){
 			pDebug(1," disk can seek now.\n");
 			push(&DiskTable[unit].DriveQueueL,track+1,&ProcTable[getpid()%MAXPROC]);
 		}else{
-		pDebug(1," disk track added alternate queue.\n");
+			pDebug(1," disk can not seek backwards, add request to alternate queue.\n");
 			push(&DiskTable[unit].DriveQueueR,track+1,&ProcTable[getpid()%MAXPROC]);
 		}
 	}
@@ -964,8 +1007,7 @@ int TermRead(char *buff, int bsize, int unit_id, int *nread){
 
 void termRead(USLOSS_Sysargs *args){
 	pDebug(2," <- termRead(): start \n");
-	int returnVal = termReadReal(args->arg3,(long)args->arg2,(long)args->arg1);
-	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].t_buff;
+	int returnVal = termReadReal((long)args->arg3,(long)args->arg2,args->arg1);
 	args->arg2 = (void*)(long)ProcTable[getpid()%MAXPROC].t_buff_size;
 	args->arg4 = (void*)(long)returnVal;
 }
@@ -978,7 +1020,7 @@ int termReadReal(int unit, int size, char *buff){
 	
 	// Get calling process in ProcTable
 	ProcTable[getpid()%MAXPROC].pid = getpid();
-	ProcTable[getpid()%MAXPROC].termOp = USLOSS_TERM_READ;
+	ProcTable[getpid()%MAXPROC].t_Op = USLOSS_TERM_READ;
 	ProcTable[getpid()%MAXPROC].t_buff = buff;
 	ProcTable[getpid()%MAXPROC].t_buff_size = size;
 	ProcTable[getpid()%MAXPROC].t_unit = unit;
@@ -991,12 +1033,10 @@ int termReadReal(int unit, int size, char *buff){
 	// Let TermReader know there is a terminal to read
 	TermReadTable[unit].t_controlStatus = USLOSS_TERM_CTRL_RECV_INT(TermReadTable[unit].t_controlStatus);
 	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)TermReadTable[unit].t_controlStatus);
-		
 	pDebug(1," <- termReadReal(): DeviceOutput result[%d]\n",resultD);
 	
 	// Block Calling Process.
 	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
-
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termReadReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
@@ -1029,12 +1069,39 @@ int TermWrite(char *buff, int bsize, int unit_id, int *nwrite){
 } 
 
 void termWrite(USLOSS_Sysargs *args){
-		pDebug(2," <- termWrite(): start \n");
+	pDebug(2," <- termWrite(): start \n");
+	int returnVal = termWriteReal((long)args->arg3,(long)args->arg2,args->arg1);
+	args->arg2 = (void*)(long)ProcTable[getpid()%MAXPROC].t_buff_size;
+	args->arg4 = (void*)(long)returnVal;
 	
 }
 
-int termWriteReal(){
-	return -1;
+int termWriteReal(int unit, int size, char *buff){
+	// Check if device call is valid range
+	if(unit <0 || unit >USLOSS_TERM_UNITS || size < 1)
+		return -1;
+	
+	// Get calling process in ProcTable
+	ProcTable[getpid()%MAXPROC].pid = getpid();
+	ProcTable[getpid()%MAXPROC].t_Op = USLOSS_TERM_WRITE;
+	ProcTable[getpid()%MAXPROC].t_buff = buff;
+	ProcTable[getpid()%MAXPROC].t_buff_size = size;
+	ProcTable[getpid()%MAXPROC].t_unit = unit;
+
+	
+	// Push Request on Term Queue
+	// pDebug(1," <- termWriteReal(): Pushing Request to TermWriter[%d] size[%d] buff[%p]\n",unit,size,buff);
+	// push(&TermWriteTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	
+	// // Unblock here unlike TermRead?
+	// //semvReal(TermWriteTable[unit].semID);
+	
+	// // Block Calling Process.
+	// pDebug(1," <- termWriteReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
+
+	// sempReal(ProcTable[getpid()%MAXPROC].semID);
+	// pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
+	return 0;
 }
 
 
