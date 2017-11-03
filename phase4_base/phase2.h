@@ -35,6 +35,7 @@ extern int MboxCondReceive(int mbox_id, void *msg_ptr, int msg_max_size);
 extern int waitDevice(int type, int unit, int *status);
 
 /*  The USLOSS_Sysargs structure */
+/*  Commented out here -- "official" definition is in usyscall.h
 typedef struct USLOSS_Sysargs
 {
         int number;
@@ -44,8 +45,9 @@ typedef struct USLOSS_Sysargs
         void *arg4;
         void *arg5;
 } USLOSS_Sysargs;
+*/
 
 // 
-extern void (*systemCallVec[])(systemArgs *args);
+extern void (*systemCallVec[])(USLOSS_Sysargs *args);
 
 #endif

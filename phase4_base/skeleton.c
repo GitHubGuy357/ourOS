@@ -3,9 +3,9 @@
 #include <phase2.h>
 #include <phase3.h>
 #include <phase4.h>
-#include <stdlib.h> /* needed for atoi() */
+#include <stdlib.h>
 
-semaphore 	running;
+int  semRunning;
 
 static int	ClockDriver(char *);
 static int	DiskDriver(char *);
@@ -14,7 +14,7 @@ void
 start3(void)
 {
     char	name[128];
-    char        termbuf[10];
+    char        buf[10];
     int		i;
     int		clockPID;
     int		pid;
@@ -28,7 +28,7 @@ start3(void)
      * I am assuming a semaphore here for coordination.  A mailbox can
      * be used instead -- your choice.
      */
-    running = semcreateReal(0);
+    semRunning = semcreateReal(0);
     clockPID = fork1("Clock driver", ClockDriver, NULL, USLOSS_MIN_STACK, 2);
     if (clockPID < 0) {
 	USLOSS_Console("start3(): Can't create clock driver\n");
@@ -36,10 +36,10 @@ start3(void)
     }
     /*
      * Wait for the clock driver to start. The idea is that ClockDriver
-     * will V the semaphore "running" once it is running.
+     * will V the semaphore "semRunning" once it is running.
      */
 
-    sempReal(running);
+    sempReal(semRunning);
 
     /*
      * Create the disk device drivers here.  You may need to increase
@@ -90,12 +90,12 @@ ClockDriver(char *arg)
     int status;
 
     // Let the parent know we are running and enable interrupts.
-    semvReal(running);
+    semvReal(semRunning);
     USLOSS_PsrSet(USLOSS_PsrGet() | USLOSS_PSR_CURRENT_INT);
 
     // Infinite loop until we are zap'd
-    while(! is_zapped()) {
-	result = waitdevice(USLOSS_CLOCK_DEV, 0, &status);
+    while(! isZapped()) {
+	result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
 	if (result != 0) {
 	    return 0;
 	}

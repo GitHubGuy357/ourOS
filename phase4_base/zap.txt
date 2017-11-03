@@ -1,0 +1,9 @@
+
+
+
+Process A asks to Sleep(5) at time 0.04 s
+Clock Driver "wakes up"  0.1, 0.2, 0.3, .... 4.9, 5.0, 5.1, 5.2
+                                                  ^^^  xxx  bad
+                                                  4.94 5.04 5.14
+TermDriver:               t    h    r   
+?6
