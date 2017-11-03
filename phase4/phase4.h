@@ -86,8 +86,9 @@ typedef struct procTable {
 	int unit;
 	int termOp;
 	void *t_buff;
-	int t_bsize;
+	int t_buff_size;
     int t_unit;
+	int t_controlStatus;
 } procTable; 
 
 typedef struct diskTable *diskTablePtr;
@@ -113,6 +114,10 @@ typedef struct termTable {
 	int currentOp;
 	int semID;
 	int mboxID;
+	int t_controlStatus;
+	char receiveChar;
+	int lineNumber;
+	char t_line_buff[10][MAXLINE];
 	MinQueue requestQueue;
 } termTable; 
 
@@ -121,5 +126,5 @@ typedef struct termTable {
 #define USLOSS_DISK_SIZE	4
 #define USLOSS_TERM_WRITE   1
 #define USLOSS_TERM_READ    2
-
+#define MAX_LINE_BUFFER     10 
 #endif /* _PHASE4_H */

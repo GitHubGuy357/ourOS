@@ -25,6 +25,7 @@ termTable TermTable[USLOSS_TERM_UNITS];
 termTable TermReadTable[USLOSS_TERM_UNITS];
 termTable TermWriteTable[USLOSS_TERM_UNITS];
 MinQueue SleepList;
+char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
 
 /*****************************************************
 *             ProtoTypes
@@ -32,9 +33,8 @@ MinQueue SleepList;
 static int	ClockDriver(char *);
 static int	DiskDriver(char *);
 static int	TermDriver(char *);
-static int	TermDriverRead(char *);
-static int	TermDriverWrite(char *);
-char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
+static int	TermReader(char *);
+static int	TermWriter(char *);
 
 void start3(void){
 	pDebug(2," <- start3(): start\n");
@@ -183,8 +183,8 @@ void start3(void){
      */
     for (i = 0; i < USLOSS_TERM_UNITS; i++) {
         sprintf(buf, "%d", i);
-		sprintf(name, "TermDriverRead %d", i);
-        pid = fork1(name, TermDriverRead, buf, USLOSS_MIN_STACK, 2);
+		sprintf(name, "TermRead %d", i);
+        pid = fork1(name, TermReader, buf, USLOSS_MIN_STACK, 2);
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create term driverRead %d\n", i);
             USLOSS_Halt(1);
@@ -197,8 +197,8 @@ void start3(void){
      */
     for (i = 0; i < USLOSS_TERM_UNITS; i++) {
         sprintf(buf, "%d", i);
-		sprintf(name, "TermDriverWrite %d", i);
-        pid = fork1(name, TermDriverWrite, buf, USLOSS_MIN_STACK, 2);
+		sprintf(name, "TermWrite %d", i);
+        pid = fork1(name, TermWriter, buf, USLOSS_MIN_STACK, 2);
         if (pid < 0) {
             USLOSS_Console("start3(): Can't create term driverRead %d\n", i);
             USLOSS_Halt(1);
@@ -221,10 +221,6 @@ void start3(void){
      * Zap the device drivers
      */
 	
-	// zap clock driver
-	pDebug(1," <- zapping clock pid[%d]...\n",clockPID);
-    zap(clockPID);  
-	
 	if(debugVal>1){
 		dumpProcesses();
 		dp4();
@@ -236,31 +232,409 @@ void start3(void){
 		semvReal(DiskTable[i].semID);
 		zap(DiskTable[i].pid);  // clock driver
 	}
-
-	// zap terminals
-	for (i=0;i<USLOSS_TERM_UNITS;i++){
-		pDebug(2," <- zapping terminal[%d] pid[%d]...\n",i,TermTable[i].pid);
-		semvReal(TermTable[i].semID);
-		zap(TermTable[i].pid);
-	}
 	
 	// zap read terminals
 	for (i=0;i<USLOSS_TERM_UNITS;i++){
-		pDebug(2," <- zapping read terminal[%d] pid[%d]...\n",i,TermReadTable[i].pid);
+		pDebug(1," <- zapping read terminal[%d] pid[%d]...\n",i,TermReadTable[i].pid);
 		semvReal(TermReadTable[i].semID);
 		zap(TermReadTable[i].pid);
 	}
 	
 	// zap write terminals
 	for (i=0;i<USLOSS_TERM_UNITS;i++){
-		pDebug(2," <- zapping write terminal[%d] pid[%d]...\n",i,TermWriteTable[i].pid);
+		pDebug(1," <- zapping write terminal[%d] pid[%d]...\n",i,TermWriteTable[i].pid);
 		semvReal(TermWriteTable[i].semID);
 		zap(TermWriteTable[i].pid);
 	}
 	
+	if(debugVal>1){
+		dumpProcesses();
+		dp4();
+	}
+	
+	// zap terminals
+	for (i=0;i<USLOSS_TERM_UNITS;i++){
+		pDebug(1," <- zapping terminal[%d] pid[%d]...\n",i,TermTable[i].pid);
+		semvReal(TermTable[i].semID);
+		zap(TermTable[i].pid);
+	}
+	
+	// zap clock driver
+	pDebug(1," <- zapping clock pid[%d]...\n",clockPID);
+    zap(clockPID);  
+	
     // eventually, at the end:
     quit(0);
     
+}
+
+/*************************************************************************
+*
+*                           DRIVERS
+*
+*************************************************************************/
+static int DiskDriver(char *arg){
+    pDebug(2," <- DiskDriver(): start \n");
+    int result = 0;
+	int resultD = -10;
+    int status;
+	int unit = atoi(arg);
+	int disk_size_req;
+	procPtr temp = NULL;
+	
+	// Get disk size from USLOSS
+	// If used as pointer and cast (void*) zapping segfaults, must initialize to nothing!
+	USLOSS_DeviceRequest control = { .opr = USLOSS_DISK_TRACKS, .reg1 = &disk_size_req, .reg2 = NULL}; 
+	resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &control);
+	result = waitDevice(USLOSS_DISK_DEV, unit, &status);
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	
+	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
+	
+	// Enable Inturrupts
+    enableInterrupts();
+	
+	// Initialize Disk Unit from arg
+	DiskTable[unit].pid = getpid();
+	DiskTable[unit].semID = semcreateReal(0);
+	DiskTable[unit].mboxID = MboxCreate(0,0);
+	DiskTable[unit].currentOp = -1;
+	DiskTable[unit].currentTrack = 0;
+	DiskTable[unit].currentSector = 0;
+	DiskTable[unit].drive_seek_dir = 1; // Start seeking right.
+	DiskTable[unit].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
+	DiskTable[unit].disk_track_size = USLOSS_DISK_TRACK_SIZE;
+	DiskTable[unit].disk_size = disk_size_req;
+  
+   // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		
+		// Block Disk waiting for Request.
+		pDebug(1," <- DiskDriver(): Before block on disk [%d]...\n",unit);
+		sempReal(DiskTable[unit].semID);
+		
+		// If Drive has a request in Queue, determine which request we are furfilling.
+		if(DiskTable[unit].DriveQueueL.count > 0 || DiskTable[unit].DriveQueueR.count > 0){
+			if(DiskTable[unit].drive_seek_dir == 1){
+				if(DiskTable[unit].DriveQueueR.count != 0){
+					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
+					temp = peek(DiskTable[unit].DriveQueueR);
+				}else 
+					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n");
+			}else if(DiskTable[unit].drive_seek_dir == 0){
+				if(DiskTable[unit].DriveQueueL.count != 0)  {
+					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
+					temp = peek(DiskTable[unit].DriveQueueL);
+				}else
+					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n"); //continue;
+			}else
+				pDebug(0,"\n\n\n\nBAD TOUCH - Request to drive_seek_dir[%d]\n\n\n\n",DiskTable[unit].drive_seek_dir);
+			
+			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
+			
+			// Update Disk current track/sector for scheduling when inserting into queue.
+			DiskTable[temp->unit].currentSector = temp->first;
+			DiskTable[temp->unit].currentTrack =  temp->track;
+				
+			//Advance disk to location if read/write op
+			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+				control.opr = USLOSS_DISK_SEEK;
+				control.reg1 = (void*)(long)temp->track;
+				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+			}
+			
+			// Temp variables, required or pointer points incorrectly to tests.
+			int curSectorsToWrite = temp->sectors;
+			void* curDbuffPtr = temp->dbuff;
+			int curSector = temp->first;
+			int curTrack = temp->track;
+
+			// Loop to Write/Read through each sector requested
+			while(curSectorsToWrite > 0){
+				if(curSector == DiskTable[temp->unit].disk_track_size){
+					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]\n",curTrack,curSector);
+					curTrack = curTrack;//curTrack+1%DiskTable[temp->unit].disk_track_size;
+					curSector = 0;
+				
+					//Advance disk to new track if wrap around
+					if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
+						control.opr = USLOSS_DISK_SEEK;
+						control.reg1 = (void*)(long)curTrack;
+						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+						pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
+					}
+					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
+				}
+
+				// Set control parameters for USLOSS_DeviceOutput
+				control.opr = temp->diskOp;
+				control.reg1 = (void*)(long)curSector; //
+				control.reg2 = curDbuffPtr;
+				
+				// Update Disk current track/sector for scheduling when inserting into queue.
+				DiskTable[temp->unit].currentSector = curSector;
+				DiskTable[temp->unit].currentTrack =  curTrack;
+				
+				// Make request
+				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
+				
+				pDebug(1," <- DiskDriver(): waitDevice Before --- pid[%d] writing...curTrack[%d] curSector[%d] curDbuff[%p]\n",temp->pid,curTrack,curSector,curDbuffPtr);
+				
+				// Wait for disk inturrupt.
+				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
+				
+				// If disk is zapped return.
+				if (result != 0) {
+					pDebug(1, "--------------Disk Quiting status[%d]--------------\n",result);
+					return 0;
+				}
+			
+				// Advance disk to next sector
+				curDbuffPtr+= USLOSS_DISK_SECTOR_SIZE;
+				curSector++;
+				curSectorsToWrite--;
+				
+				pDebug(1," <- DiskDriver(): waitDevice After --- pid[%d] [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",temp->pid,result,status,resultD);
+			}
+			
+			if(debugVal>1){
+				printQ(DiskTable[unit].DriveQueueL,"Disk[%d] Left",unit);
+				printQ(DiskTable[unit].DriveQueueR,"Disk[%d] Right",unit);
+			}
+			
+			// TODO: Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek
+			
+			// Remove process just used for disk action from proper queue. 
+			// If queue is empty, change drive direction (even though we are not using scan)
+			if (DiskTable[temp->unit].drive_seek_dir == 0){
+				pop(&DiskTable[temp->unit].DriveQueueL);
+				if(DiskTable[temp->unit].DriveQueueL.count == 0)
+					DiskTable[temp->unit].drive_seek_dir = 1;
+			}else{
+				pop(&DiskTable[temp->unit].DriveQueueR);
+				if(DiskTable[temp->unit].DriveQueueR.count == 0)
+					DiskTable[temp->unit].drive_seek_dir = 0;
+			}
+			
+			if (DiskTable[temp->unit].DriveQueueR.count == 0 && DiskTable[temp->unit].DriveQueueL.count == 0){
+			pDebug(1," <- DiskDriver(): Both QUEUES are EMPTY\n");
+			}
+		
+			
+			// Unblock Calling Process
+			pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] firstSector[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
+			semvReal(temp->semID);			
+		}
+	}
+	pDebug(2," <- DiskDriver(): end \n");
+	return status;
+}
+
+static int TermDriver(char *arg){
+    pDebug(2," <- TermDriver(): start \n");
+    int result = 0;
+	int resultD = 0;
+    int status = 0;
+	int unit = atoi(arg);
+	int control = 0;
+	char charReceived;
+	int index = 0;
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+	// Initialize Term Unit from arg
+	TermTable[unit].pid = getpid();
+	sprintf(TermTable[unit].type,"Terminal %d",unit);
+	TermTable[unit].semID = semcreateReal(0);
+	TermTable[unit].mboxID = MboxCreate(0,0);
+	
+	// Let TermReader know there is a terminal to read
+	TermReadTable[unit].t_controlStatus = USLOSS_TERM_CTRL_RECV_INT(TermReadTable[unit].t_controlStatus);
+	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)TermReadTable[unit].t_controlStatus);
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		//sempReal(TermTable[unit].semID);
+		charReceived='_';
+		pDebug(1," <- TermDriver(): Term[%d], Before waitDevice\n",unit);
+		result = waitDevice(USLOSS_TERM_DEV, unit, &TermReadTable[unit].t_controlStatus);
+
+		// if result is not 0 process probly zapped
+		if (result != 0) {
+			pDebug(1," <- TermDriver(): ------------TERM [%d] QUIT WITH STATUSB [%d]\n",unit,result);
+			return 0;
+		}
+		
+		//TODO: I think we received something
+		if(USLOSS_TERM_STAT_RECV(TermReadTable[unit].t_controlStatus) == USLOSS_DEV_BUSY){
+			char charReceived = USLOSS_TERM_STAT_CHAR(TermReadTable[unit].t_controlStatus);
+			TermReadTable[unit].receiveChar = charReceived;
+
+			
+			// Char has been received
+			TermTable[unit].t_line_buff[TermTable[unit].lineNumber][index] = TermReadTable[unit].receiveChar;
+			index++;
+			if(charReceived == '\n'){
+				pDebug(1," <- TermDriver(): Term[%d], Newline found. Line RECEIVED = %s",unit,TermTable[unit].t_line_buff[TermTable[unit].lineNumber]);
+				TermTable[unit].lineNumber++;
+				index=0;
+				
+				// Wake up TermReader.
+				pDebug(1,"\n <- termReadReal(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
+				semvReal(TermReadTable[unit].semID);
+			}
+			
+			if(TermTable[unit].lineNumber == MAX_LINE_BUFFER){
+				
+				// Wake up TermReader.
+				pDebug(1,"\n <- termReadReal(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
+				semvReal(TermReadTable[unit].semID);
+				sempReal(TermTable[unit].semID);
+			}
+		}
+	}
+	pDebug(2," <- TermDriver(): end \n");
+	return status;
+}
+
+static int TermReader(char *arg){
+    pDebug(2," <- TermReader(): start \n");
+    int result = 0;
+	int resultD = 0;
+    int status = 0;
+	int unit = atoi(arg);
+	int control = 0;
+	procPtr temp = NULL;
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+	// Initialize TermReader Unit from arg
+	TermReadTable[unit].pid = getpid();
+	sprintf(TermReadTable[unit].type,"Reader %d",unit);
+	TermReadTable[unit].semID = semcreateReal(0);
+	TermReadTable[unit].mboxID = MboxCreate(0,0);
+    
+	// Infinite loop until we are zap'd
+    while(! isZapped()) {
+		pDebug(1," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
+		
+		sempReal(TermReadTable[unit].semID);
+		pDebug(1," <- TermReader(): After block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
+
+		if(TermReadTable[unit].requestQueue.count > 0){
+			temp = pop(&TermReadTable[unit].requestQueue);
+			
+			pDebug(1,"\n <- TermReader(): Before TermReader[%d] attempts to read[%d] characters\n",unit,temp->t_buff_size);
+			
+			// temp variables
+			char *tempBuff = temp->t_buff;
+			
+			pDebug(1," <- TermReader(): i==[%d] tempBuff[%p]\n",i,tempBuff);
+			
+			// Lets TermDriver know a request is coming
+			push(&TermTable[unit].requestQueue,(long long)time(NULL),temp);
+			
+			// two cases: 
+			
+			//1) TermReader has buffered 10 lines and is blocked.
+			//2) TermReader has finished reading before 10 and is not blocked, sitting on waitDevice.
+			memcpy(tempBuff,TermTable[unit].t_line_buff[0],temp->t_buff_size);
+			for(i = 1; i< TermTable[unit].lineNumber;i++){
+				memcpy(TermTable[unit].t_line_buff[i-1],TermTable[unit].t_line_buff[i],MAXLINE);
+			}
+			bzero(TermTable[unit].t_line_buff[TermTable[unit].lineNumber], MAXLINE);
+			TermTable[unit].lineNumber--;
+			if(TermTable[unit].lineNumber == MAX_LINE_BUFFER-1)
+				semvReal(TermTable[unit].semID);
+			
+			tempBuff[temp->t_buff_size] = '\n';
+			temp->t_buff_size = strlen(temp->t_buff);
+			
+			// Unblock Calling Process
+			pDebug(1," <- TermReader(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff);
+			semvReal(temp->semID);
+		}
+	}
+	
+	pDebug(2," <- TermRead(): end \n");
+	return status;
+}
+
+static int TermWriter(char *arg){
+    pDebug(2," <- TermWriter(): start \n");
+    int result = 0;
+    int status = 0;
+	int unit = atoi(arg);
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+	// Initialize TermRead Unit from arg
+	TermWriteTable[unit].pid = getpid();
+	sprintf(TermWriteTable[unit].type,"Writer %d",unit);
+	TermWriteTable[unit].semID = semcreateReal(0);
+	TermWriteTable[unit].mboxID = MboxCreate(0,0);
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		
+		pDebug(1," <- TermWriter(): Before block on TermWriter Unit[%d] \n",unit);
+		sempReal(TermWriteTable[unit].semID);
+		
+		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
+		if (result != 0) {
+			return 0;
+		}
+		
+	}
+	
+	pDebug(2," <- TermWriter(): end \n");
+	return status;
+}
+
+static int ClockDriver(char *arg){
+	pDebug(2," <- ClockDriver(): start \n");
+    int result;
+    int status;
+	int time;
+	
+    // Let the parent know we are running and enable interrupts.
+    semvReal(mainSemaphore);
+	enableInterrupts();
+	
+    // Infinite loop until we are zap'd
+    while(! isZapped()) {
+		result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
+		if (result != 0) {
+			return 0;
+		}
+		/*
+		 * Compute the current time and wake up any processes
+		 * whose time has come.
+		 */
+
+		pDebug(3," <- ClockDriver(): calling gettimeofdayReal\n"); 
+		gettimeofdayReal(&time); 
+		while(SleepList.count>0 && ((peek(SleepList)->sleepWakeAt)) <= time){
+			procPtr temp = pop(&SleepList);
+			semvReal(temp->semID);
+			pDebug(2," <- ClockDriver(): waking up = pid[%d]\n",temp->pid); 
+			
+		}
+
+	}
+	pDebug(2," <- ClockDriver(): end \n");
+	return status;
 }
 
 /*************************************************************************
@@ -448,12 +822,12 @@ void diskWrite(USLOSS_Sysargs *args){
 	args->arg4 = (void*)(long)returnVal;
 	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].dbuff;
 }
-//DiskWrite(disk_buf_A, 0, 5, 0, 1, &status);
+
 int diskWriteReal(void *dbuff, int track, int first, int sectors, int unit){
 	pDebug(1," <- diskWriteReal(): calling pid[%d] for unit[%d] track[%d] firstSector[%d] sectors[%d]\n",getpid()%MAXPROC,unit,track,first,sectors);
 	
 	// Check if arguments are bad
-	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || first > DiskTable[unit].disk_track_size)
+	if(unit <0 || unit >1 || track > DiskTable[unit].disk_track_size || track < 0 || first < 0 || (track == DiskTable[unit].disk_track_size && first +sectors > DiskTable[unit].disk_track_size))
 		return -1;
 	
 	// Get calling process in ProcTable
@@ -592,12 +966,12 @@ void termRead(USLOSS_Sysargs *args){
 	pDebug(2," <- termRead(): start \n");
 	int returnVal = termReadReal(args->arg3,(long)args->arg2,(long)args->arg1);
 	args->arg1 = (void*)ProcTable[getpid()%MAXPROC].t_buff;
-	args->arg2 = (void*)(long)ProcTable[getpid()%MAXPROC].t_bsize;
+	args->arg2 = (void*)(long)ProcTable[getpid()%MAXPROC].t_buff_size;
 	args->arg4 = (void*)(long)returnVal;
 }
 
-int termReadReal(int unit, int size, char *buffer){
-	
+int termReadReal(int unit, int size, char *buff){
+	int resultD = 0;	
 	// Check if device call is valid range
 	if(unit <0 || unit >USLOSS_TERM_UNITS || size < 1)
 		return -1;
@@ -605,20 +979,24 @@ int termReadReal(int unit, int size, char *buffer){
 	// Get calling process in ProcTable
 	ProcTable[getpid()%MAXPROC].pid = getpid();
 	ProcTable[getpid()%MAXPROC].termOp = USLOSS_TERM_READ;
-	ProcTable[getpid()%MAXPROC].t_buff = buffer;
-	ProcTable[getpid()%MAXPROC].t_bsize = size;
+	ProcTable[getpid()%MAXPROC].t_buff = buff;
+	ProcTable[getpid()%MAXPROC].t_buff_size = size;
 	ProcTable[getpid()%MAXPROC].t_unit = unit;
+
 	
 	// Push Request on Term Queue
-	pDebug(1," <- termReadReal(): Pushing Request to term[%d] size[%d] buffer[%p]",unit,size,buffer);
-	push(&TermTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
+	pDebug(1," <- termReadReal(): Pushing Request to TermReader[%d] size[%d] buff[%p]",unit,size,buff);
+	push(&TermReadTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
-	// Wake up terminal.
-	pDebug(1,"\n <- termReadReal(): Before wake terminal[%d]\n",unit);
-	semvReal(TermTable[unit].semID);
+	// Let TermReader know there is a terminal to read
+	TermReadTable[unit].t_controlStatus = USLOSS_TERM_CTRL_RECV_INT(TermReadTable[unit].t_controlStatus);
+	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)TermReadTable[unit].t_controlStatus);
+		
+	pDebug(1," <- termReadReal(): DeviceOutput result[%d]\n",resultD);
 	
 	// Block Calling Process.
 	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
+
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termReadReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
@@ -660,323 +1038,7 @@ int termWriteReal(){
 }
 
 
-/*************************************************************************
-*
-*                           DRIVERS
-*
-*************************************************************************/
-static int DiskDriver(char *arg){
-    pDebug(2," <- DiskDriver(): start \n");
-    int result = 0;
-	int resultD = -10;
-    int status;
-	int unit = atoi(arg);
-	int disk_size_req;
-	procPtr temp = NULL;
-	
-	// Get disk size from USLOSS
-	// If used as pointer and cast (void*) zapping segfaults, must initialize to nothing!
-	USLOSS_DeviceRequest control = { .opr = USLOSS_DISK_TRACKS, .reg1 = &disk_size_req, .reg2 = NULL}; 
-	resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, unit, &control);
-	result = waitDevice(USLOSS_DISK_DEV, unit, &status);
-	
-    // Let the parent know we are running and enable interrupts.
-    semvReal(mainSemaphore);
-	
-	pDebug(1," <- DiskDriver(): starting disk [%d]...\n",unit);
-	
-	// Enable Inturrupts
-    enableInterrupts();
-	
-	// Initialize Disk Unit from arg
-	DiskTable[unit].pid = getpid();
-	DiskTable[unit].semID = semcreateReal(0);
-	DiskTable[unit].mboxID = MboxCreate(0,0);
-	DiskTable[unit].currentOp = -1;
-	DiskTable[unit].currentTrack = 0;
-	DiskTable[unit].currentSector = 0;
-	DiskTable[unit].drive_seek_dir = 1; // Start seeking right.
-	DiskTable[unit].disk_sector_size = USLOSS_DISK_SECTOR_SIZE;
-	DiskTable[unit].disk_track_size = USLOSS_DISK_TRACK_SIZE;
-	DiskTable[unit].disk_size = disk_size_req;
-  
-   // Infinite loop until we are zap'd
-    while(! isZapped()) {
-		
-		// Block Disk waiting for Request.
-		pDebug(1," <- DiskDriver(): Before block on disk [%d]...\n",unit);
-		sempReal(DiskTable[unit].semID);
-		
 
-		if(DiskTable[unit].DriveQueueL.count > 0 || DiskTable[unit].DriveQueueR.count > 0){
-			// If Drive has a request in Queue, determine which request we are furfilling.
-			if(DiskTable[unit].drive_seek_dir == 1){
-				if(DiskTable[unit].DriveQueueR.count != 0){
-					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
-					temp = peek(DiskTable[unit].DriveQueueR);
-				}else 
-					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n");
-			}else if(DiskTable[unit].drive_seek_dir == 0){
-				if(DiskTable[unit].DriveQueueL.count != 0)  {
-					// Added for test14, otherwise peek is null and current queue is empty and other queue is 1
-					temp = peek(DiskTable[unit].DriveQueueL);
-				}else
-					pDebug(1," <- DiskDriver(): ERROR: Trying to use empty DriveQueueR\n"); //continue;
-			}else
-				pDebug(0,"\n\n\n\nBAD TOUCH - Request to drive_seek_dir[%d]\n\n\n\n",DiskTable[unit].drive_seek_dir);
-			
-			pDebug(1," <- DiskDriver(): Request = [%s] from calling pid[%d]...\n",getOp(temp->diskOp),temp->pid);
-			
-			// Update Disk current track/sector for scheduling when inserting into queue.
-			DiskTable[temp->unit].currentSector = temp->first;
-			DiskTable[temp->unit].currentTrack =  temp->track;
-				
-			//Advance disk to location if read/write op
-			if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
-				control.opr = USLOSS_DISK_SEEK;
-				control.reg1 = (void*)(long)temp->track;
-				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
-				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
-			}
-			
-			// Temp variables, required or pointer points incorrectly to tests.
-			int curSectorsToWrite = temp->sectors;
-			void* curDbuffPtr = temp->dbuff;
-			int curSector = temp->first;
-			int curTrack = temp->track;
-
-			// Loop to Write/Read through each sector requested
-			while(curSectorsToWrite > 0){
-				if(curSector == DiskTable[temp->unit].disk_track_size){
-					pDebug(1," <- DiskDriver(): Track Wrap around....curTrack[%d] & curSector[%d]",curTrack,curSector);
-					curTrack = curTrack;//curTrack+1%DiskTable[temp->unit].disk_track_size;
-					curSector = 0;
-				
-					//Advance disk to new track if wrap around
-					if(temp->diskOp == USLOSS_DISK_READ || temp->diskOp == USLOSS_DISK_WRITE){
-						control.opr = USLOSS_DISK_SEEK;
-						control.reg1 = (void*)(long)curTrack;
-						resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
-						result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-						pDebug(1," <- DiskDriver(): Seeking...Track[%d] FirstSector[%d] Sectors[%d] Buffer[%p]...\n",temp->track,temp->first,temp->sectors,temp->dbuff);
-					}
-					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
-				}
-
-				// Set control parameters for USLOSS_DeviceOutput
-				control.opr = temp->diskOp;
-				control.reg1 = (void*)(long)curSector; //
-				control.reg2 = curDbuffPtr;
-				
-				// Update Disk current track/sector for scheduling when inserting into queue.
-				DiskTable[temp->unit].currentSector = curSector;
-				DiskTable[temp->unit].currentTrack =  curTrack;
-				
-				// Make request
-				resultD = USLOSS_DeviceOutput(USLOSS_DISK_DEV, temp->unit, &control);
-				
-				pDebug(1," <- DiskDriver(): waitDevice Before --- pid[%d] writing...curTrack[%d] curSector[%d] curDbuff[%p]\n",temp->pid,curTrack,curSector,curDbuffPtr);
-				
-				// Wait for disk inturrupt.
-				result = waitDevice(USLOSS_DISK_DEV, temp->unit, &status);
-				
-				// Advance disk to next sector
-				curDbuffPtr+= USLOSS_DISK_SECTOR_SIZE;
-				curSector++;
-				curSectorsToWrite--;
-				
-				pDebug(1," <- DiskDriver(): waitDevice After --- pid[%d] [Result:%d, Status:%d] DeviceOutput [Result:%d]...\n",temp->pid,result,status,resultD);
-			}
-			
-			if(debugVal>1){
-				printQ(DiskTable[unit].DriveQueueL,"Disk[%d] Left",unit);
-				printQ(DiskTable[unit].DriveQueueR,"Disk[%d] Right",unit);
-			}
-			
-			// TODO: Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek
-			
-			// Remove process just used for disk action from proper queue. 
-			// If queue is empty, change drive direction (even though we are not using scan)
-			if (DiskTable[temp->unit].drive_seek_dir == 0){
-				pop(&DiskTable[temp->unit].DriveQueueL);
-				if(DiskTable[temp->unit].DriveQueueL.count == 0)
-					DiskTable[temp->unit].drive_seek_dir = 1;
-			}else{
-				pop(&DiskTable[temp->unit].DriveQueueR);
-				if(DiskTable[temp->unit].DriveQueueR.count == 0)
-					DiskTable[temp->unit].drive_seek_dir = 0;
-			}
-		
-		if (DiskTable[temp->unit].DriveQueueR.count == 0 && DiskTable[temp->unit].DriveQueueL.count == 0){
-			pDebug(1," <- DiskDriver(): Both QUEUES are EMPTY\n");
-		}
-		
-		// If disk is zapped return.
-		if (result != 0) {
-			pDebug(1, "--------------Disk Quiting status[%d]--------------\n",result);
-			return 0;
-		}	
-		
-		// Unblock Calling Process
-		pDebug(1," <- DiskDriver(): unblocking calling process [%d] that requested disk[%d.%d] track[%d] firstSector[%d] sectors[%d]...\n",temp->pid,temp->unit,unit,temp->track,temp->first,temp->sectors);
-		
-		semvReal(temp->semID);
-
-		}
-
-
-
-	}
-	pDebug(2," <- DiskDriver(): end \n");
-	return status;
-}
-
-static int TermDriver(char *arg){
-    pDebug(2," <- TermDriver(): start \n");
-    int result = 0;
-    int status = 0;
-	int unit = atoi(arg);
-	procPtr temp = NULL;
-	
-    // Let the parent know we are running and enable interrupts.
-    semvReal(mainSemaphore);
-	enableInterrupts();
-	
-	// Initialize Term Unit from arg
-	TermTable[unit].pid = getpid();
-	sprintf(TermTable[unit].type,"Terminal %d",unit);
-	TermTable[unit].semID = semcreateReal(0);
-	TermTable[unit].mboxID = MboxCreate(0,0);
-
-
-    // Infinite loop until we are zap'd
-    while(! isZapped()) {
-		
-		pDebug(1," <- TermDriver(): Before block on Term Unit[%d] \n",unit);
-		sempReal(TermTable[unit].semID);
-		
-		if(TermTable[unit].requestQueue.count > 0){
-			temp = pop(&TermTable[unit].requestQueue);
-			
-			//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
-			if (result != 0) {
-				return 0;
-			}
-			
-		// Unblock Calling Process
-		pDebug(1," <- TermDriver(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_bsize,temp->t_buff);
-		
-		semvReal(temp->semID);
-		}
-			
-			
-
-	}
-	
-	pDebug(2," <- TermDriver(): end \n");
-	return status;
-}
-
-static int TermDriverRead(char *arg){
-    pDebug(2," <- TermDriverRead(): start \n");
-    int result = 0;
-    int status = 0;
-	int unit = atoi(arg);
-	
-    // Let the parent know we are running and enable interrupts.
-    semvReal(mainSemaphore);
-	enableInterrupts();
-	
-	// Initialize TermRead Unit from arg
-	TermReadTable[unit].pid = getpid();
-	sprintf(TermReadTable[unit].type,"Reader %d",unit);
-	TermReadTable[unit].semID = semcreateReal(0);
-	TermReadTable[unit].mboxID = MboxCreate(0,0);
-
-	
-    // Infinite loop until we are zap'd
-    while(! isZapped()) {
-		
-		pDebug(1," <- TermDriver(): Before block on Term Read Unit[%d] \n",unit);
-		sempReal(TermReadTable[unit].semID);
-		
-		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
-		if (result != 0) {
-			return 0;
-		}
-	}
-	
-	pDebug(2," <- TermDriverRead(): end \n");
-	return status;
-}
-
-static int TermDriverWrite(char *arg){
-    pDebug(2," <- TermDriverWrite(): start \n");
-    int result = 0;
-    int status = 0;
-	int unit = atoi(arg);
-	
-    // Let the parent know we are running and enable interrupts.
-    semvReal(mainSemaphore);
-	enableInterrupts();
-	
-	// Initialize TermRead Unit from arg
-	TermWriteTable[unit].pid = getpid();
-	sprintf(TermWriteTable[unit].type,"Writer %d",unit);
-	TermWriteTable[unit].semID = semcreateReal(0);
-	TermWriteTable[unit].mboxID = MboxCreate(0,0);
-	
-    // Infinite loop until we are zap'd
-    while(! isZapped()) {
-		
-		pDebug(1," <- TermDriver(): Before block on Term Write Unit[%d] \n",unit);
-		sempReal(TermWriteTable[unit].semID);
-		
-		//result = waitDevice(USLOSS_TERM_DEV, unit, &status);
-		if (result != 0) {
-			return 0;
-		}
-	}
-	
-	pDebug(2," <- TermDriverWrite(): end \n");
-	return status;
-}
-
-static int ClockDriver(char *arg){
-	pDebug(2," <- ClockDriver(): start \n");
-    int result;
-    int status;
-	int time;
-	
-    // Let the parent know we are running and enable interrupts.
-    semvReal(mainSemaphore);
-	enableInterrupts();
-	
-    // Infinite loop until we are zap'd
-    while(! isZapped()) {
-		result = waitDevice(USLOSS_CLOCK_DEV, 0, &status);
-		if (result != 0) {
-			return 0;
-		}
-		/*
-		 * Compute the current time and wake up any processes
-		 * whose time has come.
-		 */
-
-		pDebug(3," <- ClockDriver(): calling gettimeofdayReal\n"); 
-		gettimeofdayReal(&time); 
-		while(SleepList.count>0 && ((peek(SleepList)->sleepWakeAt)) <= time){
-			procPtr temp = pop(&SleepList);
-			semvReal(temp->semID);
-			pDebug(2," <- ClockDriver(): waking up = pid[%d]\n",temp->pid); 
-			
-		}
-
-	}
-	pDebug(2," <- ClockDriver(): end \n");
-	return status;
-}
 
 
 /*************************************************************************

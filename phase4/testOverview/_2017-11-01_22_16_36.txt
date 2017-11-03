@@ -1,0 +1,36 @@
+
+Results:
+
+ Matching Count: 11
+   test04 ----MATCH----
+   test09 ----MATCH----
+   test10 ----MATCH----
+   test11 ----MATCH----
+   test12 ----MATCH----
+   test13 ----MATCH----
+   test14 ----MATCH----
+   test15 ----MATCH----
+   test16 ----MATCH----
+   test17 ----MATCH----
+   test18 ----MATCH----
+
+ Mismatch Count: 10
+   test00 ----NOT MATCH----
+   test01 ----NOT MATCH----
+   test02 ----NOT MATCH----
+   test03 ----NOT MATCH----
+   test05 ----NOT MATCH----
+   test06 ----NOT MATCH----
+   test07 ----NOT MATCH----
+   test08 ----NOT MATCH----
+   test19 ----NOT MATCH----
+   test23 ----NOT MATCH----
+
+ Missing Count: 3
+   test20.txt
+   test21.txt
+   test22.txt
+
+ Skipped: 7
+   disk13-0 | disk13-1 | disk14 | disk16 | disk17 | disk18-0 | disk18-1 |
+

@@ -11,10 +11,10 @@ CSRCS = ${COBJS:.o=.c}
 PHASE1LIB = patrickphase1
 PHASE2LIB = patrickphase2
 PHASE3LIB = patrickphase3
-#PHASE3LIB = ourphase3
 #PHASE1LIB = patrickphase1debug
 #PHASE2LIB = patrickphase2debug
 #PHASE3LIB = patrickphase3debug
+#PHASE3LIB = ourphase3
 
 HDRS = MinQueue.h phase1.h phase2.h phase3.h phase4.h libuser.h
 
@@ -46,7 +46,8 @@ $(TESTS):	$(TARGET) p1.o
 	$(CC) $(LDFLAGS) -o $@ $(LIBS) $@.o $(LIBS) p1.o $(LIBS)
 
 clean:
-	rm -f $(COBJS) $(TARGET) test*.o test*.txt term* $(TESTS) \
+	#term*
+	rm -f $(COBJS) $(TARGET) test*.o test*.txt  $(TESTS) \
 	libuser.o p1.o core disk*
 	cp testcases/disk0.orig ./disk0
 	cp testcases/disk1.orig ./disk1
