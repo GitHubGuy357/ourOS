@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <string.h>
 
-int     debugVal = 1; // 0 == off to 3 == most debug info
+int     debugVal = 0; // 0 == off to 3 == most debug info
 
 /*****************************************************
 *             Globals
@@ -620,12 +620,14 @@ static int TermWriter(char *arg){
 	TermWriteTable[unit].semID = semcreateReal(0);
 	TermWriteTable[unit].mboxID = MboxCreate(0,0);
 	
+			// Block TermWriter waiting for input
+		pDebug(1," <- TermWriter(): Before block on TermWriter Unit[%d] \n",unit);
+		sempReal(TermWriteTable[unit].semID);
+		
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		
-		// Block TermWriter waiting for input
-		pDebug(1," <- TermWriter(): Before block on TermWriter Unit[%d] \n",unit);
-		sempReal(TermWriteTable[unit].semID);
+
 		
 		// If zapped while blocked return
 		if (isZapped()) {
@@ -1063,8 +1065,8 @@ int termReadReal(int unit, int size, char *buff){
 	ProcTable[getpid()%MAXPROC].t_unit = unit;
 
 	
-	// Push Request on Term Queue
-	pDebug(1," <- termReadReal(): Pushing Request to TermReader[%d] size[%d] buff[%p]",unit,size,buff);
+	pDebug(1," <- termReadReal(): pid[%d] pushing Request to TermWriter[%d] size[%d] buff[%p]\n",ProcTable[getpid()%MAXPROC].pid,unit,size,buff);
+	
 	push(&TermReadTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Let TermReader know there is a terminal to read
@@ -1073,7 +1075,7 @@ int termReadReal(int unit, int size, char *buff){
 	//pDebug(1," <- termReadReal(): DeviceOutput result[%d]\n",resultD);
 	
 	// Block Calling Process.
-	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
+	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termReadReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
@@ -1127,15 +1129,14 @@ int termWriteReal(int unit, int size, char *buff){
 
 	
 	//Push Request on Term Queue
-	pDebug(1," <- termWriteReal(): Pushing Request to TermWriter[%d] size[%d] buff[%p]\n",unit,size,buff);
+	pDebug(1," <- termWriteReal(): pid[%d] pushing Request to TermWriter[%d] size[%d] buff[%p]\n",ProcTable[getpid()%MAXPROC].pid,unit,size,buff);
 	push(&TermWriteTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Unblock here unlike TermRead?
 	semvReal(TermWriteTable[unit].semID);
 	
 	// Block Calling Process.
-	pDebug(1," <- termWriteReal(): Before Block calling pid[%d]\n",unit,ProcTable[getpid()%MAXPROC].unit,ProcTable[getpid()%MAXPROC].pid);
-
+	pDebug(1," <- termWriteReal(): Before Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	return 0;
