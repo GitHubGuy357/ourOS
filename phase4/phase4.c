@@ -481,11 +481,10 @@ static int TermDriver(char *arg){
 	
     // Infinite loop until we are zap'd
     while(! isZapped()) {
-		//sempReal(TermTable[unit].semID);
 		charReceived='_';
-		pDebug(1," <- TermDriver(): Term[%d] before waitDevice\n",unit);
 		result = waitDevice(USLOSS_TERM_DEV, unit, &control);
-		if(debugVal>0)
+		
+		if(debugVal>2)
 			print_status(control);
 
 		// if result is not 0 process probly zapped
@@ -496,17 +495,21 @@ static int TermDriver(char *arg){
 		
 		//TODO: I think we received something
 		if(USLOSS_TERM_STAT_RECV(control) == USLOSS_DEV_BUSY){
+			// Char has been received
 			char charReceived = USLOSS_TERM_STAT_CHAR(control);
 			TermReadTable[unit].receiveChar = charReceived;
-
-			// Char has been received, wake up TermReader
+			pDebug(2," <- TermDriver(): Term[%d] received char[%c], waking up TermWriter[%d]------\n",unit,charReceived,unit);
+			
+			// Wake up TermReader
 			semvReal(TermReadTable[unit].semID);
 		}
 		if(USLOSS_TERM_STAT_XMIT(control) == USLOSS_DEV_READY){
-			char charReceived = USLOSS_TERM_STAT_CHAR(control);
-			pDebug(1," <- TermDriver(): Write of [%c] ready, waking up TermWriter[%d]------\n",charReceived,unit);
-			TermWriteTable[unit].receiveChar = charReceived;
-		//	semvReal(TermWriteTable[unit].semID); //temp->pid
+			if(TermWriteTable[unit].requestQueue.count >0){
+				pDebug(1," <- TermDriver(): Term[%d] ready to write, waking up TermWriter[%d]------\n",unit,unit);
+				
+				// Char has been XMIT send to TermWriter
+				semvReal(TermWriteTable[unit].semID); //temp->pid
+			}
 		}
 	}
 	pDebug(2," <- TermDriver(): end \n");
@@ -549,10 +552,8 @@ static int TermReader(char *arg){
 		if(TermTable[unit].lineNumber == MAX_LINE_BUFFER){
 			// Wake up TermReader.
 			pDebug(2,"\n <- TermReader(): Before wake TermReader[%d] on semID[%d]\n",unit,TermReadTable[unit].semID);
-			//semvReal(TermReadTable[unit].semID);
-			//sempReal(TermTable[unit].semID);
 		}else if(TermReadTable[unit].receiveChar == '\n'){
-			pDebug(2," <- TermReader(): Term[%d], Newline found. Line RECEIVED = %s",unit,TermTable[unit].t_line_buff[TermTable[unit].lineNumber]);
+			pDebug(1," <- TermReader(): Term[%d], Newline found. Line RECEIVED = %s",unit,TermTable[unit].t_line_buff[TermTable[unit].lineNumber]);
 			TermTable[unit].lineNumber++;
 			index=0;
 		}
@@ -632,32 +633,41 @@ static int TermWriter(char *arg){
 		}
 			
 		pDebug(1," <- TermWriter(): After block on TermWriter Unit[%d] semID[%d] requestCount[%d]\n",unit,TermWriteTable[unit].semID,TermWriteTable[unit].requestQueue.count);
-		
+			
 		// Inform USLOSS we are going to write
-        control = 0;
-        control = USLOSS_TERM_CTRL_XMIT_INT((long)control);
-        resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
-		
-
+		control = 0;
+		control = USLOSS_TERM_CTRL_XMIT_INT((long)control);
+		resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
+		procPtr temp = peek(TermWriteTable[unit].requestQueue);
+			
 		if(TermWriteTable[unit].requestQueue.count > 0 && peek(TermWriteTable[unit].requestQueue)->t_Op == USLOSS_TERM_WRITE){
-			procPtr temp = pop(&TermWriteTable[unit].requestQueue);
+			
+
 			int bytesWritten = 0;
 			char* writeBuffer = temp->t_buff;
+			
+			// For each character requested to write, block and wait for TermDriver to tell us RDY to write.
 			while(bytesWritten < temp->t_buff_size){
-
-				//sempReal(TermWriteTable[unit].semID); //temp->pid
-				pDebug(1," <- TermWriter(): Writing char[%c]\n",TermWriteTable[unit].receiveChar); //writeBuffer[bytesWritten]
-				control = 0;
+				sempReal(TermWriteTable[unit].semID);
+				pDebug(1," <- TermWriter(): Writing char[%c]\n",writeBuffer[bytesWritten]);//TermWriteTable[unit].receiveChar
+				control = 1;
 				control =  USLOSS_TERM_CTRL_CHAR(control, writeBuffer[bytesWritten]);
 				control = USLOSS_TERM_CTRL_XMIT_INT(control);
 				control =  USLOSS_TERM_CTRL_XMIT_CHAR(control);
+
 				bytesWritten++;
+				resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 				
 								
-				
 				//writeBuffer++;
 			}
 			
 			temp->t_buff_size = bytesWritten;
+			pop(&TermWriteTable[unit].requestQueue);
+			
+			//Turn XMIT off
+			control = 0;
+			control = USLOSS_TERM_CTRL_XMIT_INT(control);
+			resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 
 			
 			// Unblock Calling Process
 			pDebug(1," <- TermWriter(): unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p]...\n",temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff);
