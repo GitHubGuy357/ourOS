@@ -47,7 +47,7 @@ $(TESTS):	$(TARGET) p1.o
 
 clean:
 	#term*
-	rm -f $(COBJS) $(TARGET) test*.o test*.txt  $(TESTS) \
+	rm -f $(COBJS) $(TARGET) test*.o test*.txt term*.out  $(TESTS) \
 	libuser.o p1.o core disk*
 	cp testcases/disk0.orig ./disk0
 	cp testcases/disk1.orig ./disk1

@@ -41,6 +41,7 @@ extern  int  start4(char * name);
 void dp4();
 void dd4();
 void dt4();
+void print_status(int control);
 void intializeSysCalls();
 int check_kernel_mode(char *procName);
 int enableInterrupts();
