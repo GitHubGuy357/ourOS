@@ -42,6 +42,7 @@ void dp4();
 void dd4();
 void dt4();
 void print_status(int control);
+void print_control(int control);
 void intializeSysCalls();
 int check_kernel_mode(char *procName);
 int enableInterrupts();
@@ -114,11 +115,12 @@ typedef struct termTable {
 	char type[20];
 	int currentOp;
 	int semID;
+	int t_write_semID;
 	int mboxID;
 	int t_controlStatus;
 	char receiveChar;
 	int lineNumber;
-	char t_line_buff[10][MAXLINE];
+	char t_buffer_of_lines[10][MAXLINE];
 	MinQueue requestQueue;
 } termTable; 
 
@@ -127,5 +129,7 @@ typedef struct termTable {
 #define USLOSS_DISK_SIZE	4
 #define USLOSS_TERM_WRITE   1
 #define USLOSS_TERM_READ    2
-#define MAX_LINE_BUFFER     10 
+#define MAX_LINES     10 
+#define STATUS_QUIT         0
+#define STATUS_RUNNING      1
 #endif /* _PHASE4_H */
