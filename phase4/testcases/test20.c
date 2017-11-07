@@ -1,3 +1,30 @@
+/*
+term0.out
+Child 0: A Something interesting to print here... line 0 zero
+Child 0: A Something interesting to print here... line 1 zero
+Child 0: A Something interesting to print here... line 2 zero
+Child 0: A Something interesting to print here... line 3 zero
+Child 0: A Something interesting to print here... line 4 zero
+term1.out
+Child 1: A Something interesting to print here... line 0 one
+Child 1: A Something interesting to print here... line 1 one
+Child 1: A Something interesting to print here... line 2 one
+Child 1: A Something interesting to print here... line 3 one
+Child 1: A Something interesting to print here... line 4 one
+term2.out
+Child 2: A Something interesting to print here... line 0 second
+Child 2: A Something interesting to print here... line 1 second
+Child 2: A Something interesting to print here... line 2 second
+Child 2: A Something interesting to print here... line 3 second
+Child 2: A Something interesting to print here... line 4 second
+term3.out
+Child 3: A Something interesting to print here... line 0 three
+Child 3: A Something interesting to print here... line 1 three
+Child 3: A Something interesting to print here... line 2 three
+Child 3: A Something interesting to print here... line 3 three
+Child 3: A Something interesting to print here... line 4 three
+*/
+
 /* TERMTEST
  * Spawn off 8 children. The children either read a line each from each
  * terminal, or write a line each to each terminal.

@@ -1,6 +1,22 @@
 #include <stdio.h>
 #include <usloss.h>
 #include <usyscall.h>
+/*
+term0.out
+zero: first line
+zero: second line
+zero: third line, longer than previous ones
+zero: fourth line, will be 80 characters long when I get through typing it in.
+zero: fifth line
+zero: sixth line
+zero: seventh line
+zero: eighth line
+zero: ninth line
+zero: tenth line
+term1.out
+term2.out
+term3.out
+*/
 #include <libuser.h>
 #include <assert.h>
 #include <phase1.h>

@@ -18,7 +18,7 @@ struct procTable* peek(MinQueue head) {
  * removeQ - Finds matching val_to_remove, if not found returns 0
  * otherwise removes
  ****************************************************************************/
- /*
+ 
 int removeQ(MinQueue *heap, int val_to_remove) {
 	Node *current = heap->topPtr;
 	Node *previous = NULL;
@@ -40,7 +40,7 @@ int removeQ(MinQueue *heap, int val_to_remove) {
 	} else
 		return 0;
 }
-*/
+
 /****************************************************************************
  * print_queue - Prints the queue to stdio
  ****************************************************************************/
@@ -50,10 +50,10 @@ void printQ(MinQueue q, char *fmt, ...) {
 	va_start(args, fmt);
 	vfprintf(stdout, fmt, args);
     fflush(stdout);
-	printf(" Queue: Count = [%d]\n",q.count);
+	printf(" Queue: Count = [%d] addr[%p]\n",q.count,&q);
 	Node *tmp = q.topPtr;
 	while (tmp != NULL) {
-		printf("  ^->Priority:[%ld] Pid:[%ld] SleepAt:[%ld] WakeAt:[%ld] Unit:[%d] Track:[%d] F.Sector[%d]\n",(long)tmp->priority, (long)tmp->data->pid, tmp->data->sleepAt, tmp->data->sleepWakeAt, tmp->data->unit, tmp->data->track, tmp->data->first);
+		printf("  ^->Priority:[%lld] Pid:[%d] SleepAt:[%ld] WakeAt:[%ld] Unit:[%d] Track:[%d] F.Sector[%d] T_Op=[%d] T_unit[%d]\n",tmp->priority, tmp->data->pid, (long)tmp->data->sleepAt, (long)tmp->data->sleepWakeAt, tmp->data->unit, tmp->data->track, tmp->data->first,tmp->data->t_Op,tmp->data->t_unit);
 		tmp = tmp->next;
 	}
 }

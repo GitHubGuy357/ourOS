@@ -7,9 +7,3 @@ Child2(): Terminating
 Child1(): Terminating
 start4(): done.
 All processes completed.
-
-term0.out
-term1.out
-A Something interesting to print here...
-term2.out
-term3.out

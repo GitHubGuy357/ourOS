@@ -1,3 +1,14 @@
+/*
+term0.out
+ChildTW(): A Something interesting to print to term 0 ...
+term1.out
+ChildTW(): A Something interesting to print to term 1 ...
+term2.out
+ChildTW(): A Something interesting to print to term 2 ...
+term3.out
+ChildTW(): A Something interesting to print to term 3 ...
+*/
+
 /* KILLER
  * Spawn 5 children to sleep
  * Spawn 2 children ... 1 to read 1 line from each terminal and one to write one line to each terminal

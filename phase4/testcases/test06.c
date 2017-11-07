@@ -1,3 +1,10 @@
+/*
+term0.out
+term1.out
+A Something interesting to print here...
+term2.out
+term3.out
+*/
 #include <stdio.h>
 #include <libuser.h>
 #include <usloss.h>

@@ -76,7 +76,7 @@ typedef struct procTable {
 	long sleepDuration;
 	long sleepWakeAt;
 	int semID;
-	int mboxID;
+	int mBoxID;
 	int disk_sector_size;
 	int disk_track_size; 
 	int disk_size;
@@ -103,7 +103,7 @@ typedef struct diskTable {
 	int disk_track_size;
 	int disk_size;
 	int semID;
-	int mboxID;
+	int mBoxID;
 	MinQueue DriveQueueR;
 	MinQueue DriveQueueL;
 	int drive_seek_dir; // 0 = left, 1 = right
@@ -116,7 +116,7 @@ typedef struct termTable {
 	int currentOp;
 	int semID;
 	int t_write_semID;
-	int mboxID;
+	int mBoxID;
 	int t_controlStatus;
 	char receiveChar;
 	int lineNumber;

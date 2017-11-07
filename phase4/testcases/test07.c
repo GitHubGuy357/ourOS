@@ -1,3 +1,26 @@
+/*
+term0.out
+Child 0: A Something interesting to print here...zero
+Child 1: A Something interesting to print here...one
+Child 2: A Something interesting to print here...second
+Child 3: A Something interesting to print here...three
+term1.out
+Child 0: A Something interesting to print here...zero
+Child 1: A Something interesting to print here...one
+Child 2: A Something interesting to print here...second
+Child 3: A Something interesting to print here...three
+term2.out
+Child 0: A Something interesting to print here...zero
+Child 1: A Something interesting to print here...one
+Child 2: A Something interesting to print here...second
+Child 3: A Something interesting to print here...three
+term3.out
+Child 0: A Something interesting to print here...zero
+Child 1: A Something interesting to print here...one
+Child 2: A Something interesting to print here...second
+Child 3: A Something interesting to print here...three
+*/
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
