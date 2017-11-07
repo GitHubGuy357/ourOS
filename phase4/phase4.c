@@ -19,6 +19,7 @@ int     debugVal = 0; // 0 == off to 3 == most debug info
 void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
 int 	mainSemaphore;
 int		i;
+int     isCharRead = 0;
 procTable ProcTable[MAXPROC];
 diskTable DiskTable[USLOSS_DISK_UNITS];
 termTable TermTable[USLOSS_TERM_UNITS];
@@ -490,10 +491,10 @@ static int TermDriver(char *arg){
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		charReceived='_';
-		pDebug(1," <- TermDriver(): ------TERM[%d] BEFORE WAITDEVICE()\n",unit);
+		pDebug(2," <- TermDriver(): ------TERM[%d] BEFORE WAITDEVICE()\n",unit);
 		result = waitDevice(USLOSS_TERM_DEV, unit, &control);
-		pDebug(1," <- TermDriver(): ------TERM[%d] AFTER WAITDEVICE()\n",unit);
-		if(debugVal>0)print_status(control);
+		pDebug(2," <- TermDriver(): ------TERM[%d] AFTER WAITDEVICE()\n",unit);
+		if(debugVal>1)print_status(control);
 
 		// if result is not 0 process probly zapped
 		if (result != 0) {
@@ -553,13 +554,15 @@ static int TermReader(char *arg){
 	
 	// Infinite loop until we are zap'd
 	while(! isZapped()) {
-		pDebug(1," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
+		pDebug(2," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
 		sempReal(TermReadTable[unit].semID);
 		if(isZapped())
 			return 0;
-		pDebug(1," <- TermReader(): After block on TermReader Unit[%d] semID[%d] requestCount[%d]\n",unit,TermReadTable[unit].semID,TermReadTable[unit].requestQueue.count);
-		line_buffer[index] = TermReadTable[unit].receiveChar;
-		index++;
+		pDebug(2," <- TermReader(): After block on TermReader Unit[%d] semID[%d] requestCount[%d]\n",unit,TermReadTable[unit].semID,TermReadTable[unit].requestQueue.count);
+		if(TermReadTable[unit].receiveChar != '\0'){
+			line_buffer[index] = TermReadTable[unit].receiveChar;
+			index++;
+		}
 		pDebug(2," <- TermReader(): unit[%d] charReceive[%c] index[%d]\n",unit,TermReadTable[unit].receiveChar, index);
 		
 		// Newline has been found, we are either sending to 
@@ -662,27 +665,28 @@ static int TermWriter(char *arg){
 				
 				// Block until TermDriver says it is ready to write.
 				sempReal(TermWriteTable[unit].t_write_semID);
-				
-				// If zapped while blocked return
-				if (isZapped()) {
-					return 0;
-				}
-						
-				// TermDriver says ok to write
-				pDebug(3," <- TermWriter(): Unit[%d.%d] Writing '%c' at index[%d] of %d\n",unit,temp->t_unit,writeBuffer[bytesWritten],bytesWritten,temp->t_buff_size);
-				control = 0;
-				control = USLOSS_TERM_CTRL_XMIT_INT(control);
-				control = USLOSS_TERM_CTRL_RECV_INT(control);
-				control =  USLOSS_TERM_CTRL_CHAR(control, writeBuffer[bytesWritten]);
-				control =  USLOSS_TERM_CTRL_XMIT_CHAR(control);
-				
-				if(debugVal>2){print_control(control);}
-				
-				// Increment Bytes written
-				bytesWritten++;
-				
-				// Write result to term.out
-				resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 					
+				if(writeBuffer[bytesWritten] != '\0'){
+					// If zapped while blocked return
+					if (isZapped()) {
+						return 0;
+					}
+							
+					// TermDriver says ok to write
+					pDebug(1," <- TermWriter(): Unit[%d.%d] Writing '%c' at index[%d] of %d\n",unit,temp->t_unit,writeBuffer[bytesWritten],bytesWritten,temp->t_buff_size);
+					control = 0;
+					control = USLOSS_TERM_CTRL_XMIT_INT(control);
+					control = USLOSS_TERM_CTRL_RECV_INT(control);
+					control =  USLOSS_TERM_CTRL_CHAR(control, writeBuffer[bytesWritten]);
+					control =  USLOSS_TERM_CTRL_XMIT_CHAR(control);
+					
+					if(debugVal>2){print_control(control);}
+					
+					// Increment Bytes written
+					bytesWritten++;
+					
+					// Write result to term.out
+					resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 	
+				}				
 			}
 			temp->t_buff_size = bytesWritten;
 			//printQ(TermWriteTable[unit].requestQueue," <- Write");
@@ -1164,11 +1168,12 @@ int termWriteReal(int unit, int size, char *buff){
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	ProcTable[getpid()%MAXPROC].status = STATUS_QUIT;
-	//int control = 0;
-	//control = USLOSS_TERM_CTRL_XMIT_INT(control);
-	//control = USLOSS_TERM_CTRL_RECV_INT(control);
-	//int	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 
-	//semvReal(TermReadTable[unit].semID);
+	int control = 0;
+	control = USLOSS_TERM_CTRL_XMIT_INT(control);
+	control = USLOSS_TERM_CTRL_RECV_INT(control);
+	int	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 
+	TermReadTable[unit].receiveChar = '\0';
+	semvReal(TermReadTable[unit].semID);
 	//dt4();
 	return 0;
 }
