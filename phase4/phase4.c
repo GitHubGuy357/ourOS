@@ -1164,6 +1164,12 @@ int termWriteReal(int unit, int size, char *buff){
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	ProcTable[getpid()%MAXPROC].status = STATUS_QUIT;
+	//int control = 0;
+	//control = USLOSS_TERM_CTRL_XMIT_INT(control);
+	//control = USLOSS_TERM_CTRL_RECV_INT(control);
+	//int	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 
+	//semvReal(TermReadTable[unit].semID);
+	//dt4();
 	return 0;
 }
 
