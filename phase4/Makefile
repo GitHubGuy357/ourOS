@@ -18,7 +18,7 @@ PHASE3LIB = patrickphase3
 
 #PHASE3LIB = ourphase3
 
-HDRS = MinQueue.h phase1.h phase2.h phase3.h phase4.h libuser.h
+HDRS = MinQueue.h phase1.h phase2.h phase3.h phase4.h libuser.h sems.h providedPrototypes.h
 
 INCLUDE = ${PREFIX}/include
 

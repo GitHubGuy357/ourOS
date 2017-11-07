@@ -490,11 +490,10 @@ static int TermDriver(char *arg){
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		charReceived='_';
-		pDebug(2," <- TermDriver(): ------TERM[%d] BEFORE WAITDEVICE()\n",unit);
+		pDebug(1," <- TermDriver(): ------TERM[%d] BEFORE WAITDEVICE()\n",unit);
 		result = waitDevice(USLOSS_TERM_DEV, unit, &control);
-		pDebug(2," <- TermDriver(): ------TERM[%d] AFTER WAITDEVICE()\n",unit);
-		if(debugVal>1)
-			print_status(control);
+		pDebug(1," <- TermDriver(): ------TERM[%d] AFTER WAITDEVICE()\n",unit);
+		if(debugVal>0)print_status(control);
 
 		// if result is not 0 process probly zapped
 		if (result != 0) {
@@ -507,7 +506,7 @@ static int TermDriver(char *arg){
 			// Char has been received
 			char charReceived = USLOSS_TERM_STAT_CHAR(control);
 			TermReadTable[unit].receiveChar = charReceived;
-			pDebug(2," <- TermDriver(): Term[%d] received char[%c], waking up TermWriter[%d]...\n",unit,charReceived,unit);
+			pDebug(3," <- TermDriver(): Term[%d] received char[%c], waking up TermWriter[%d]...\n",unit,charReceived,unit);
 			
 			// Wake up TermReader
 			semvReal(TermReadTable[unit].semID);
@@ -554,11 +553,11 @@ static int TermReader(char *arg){
 	
 	// Infinite loop until we are zap'd
 	while(! isZapped()) {
-		pDebug(2," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
+		pDebug(1," <- TermReader(): Before block on TermReader Unit[%d] semID[%d]\n",unit,TermReadTable[unit].semID);
 		sempReal(TermReadTable[unit].semID);
 		if(isZapped())
 			return 0;
-		pDebug(2," <- TermReader(): After block on TermReader Unit[%d] semID[%d] requestCount[%d]\n",unit,TermReadTable[unit].semID,TermReadTable[unit].requestQueue.count);
+		pDebug(1," <- TermReader(): After block on TermReader Unit[%d] semID[%d] requestCount[%d]\n",unit,TermReadTable[unit].semID,TermReadTable[unit].requestQueue.count);
 		line_buffer[index] = TermReadTable[unit].receiveChar;
 		index++;
 		pDebug(2," <- TermReader(): unit[%d] charReceive[%c] index[%d]\n",unit,TermReadTable[unit].receiveChar, index);
@@ -577,7 +576,7 @@ static int TermReader(char *arg){
 			index=0;
 		}
 		
-		// If a line has been buffered and a request is on the termReader, than furfill the request.
+		// If a line has been buffered and a request is on the termReader, then furfill the request.
 		if(TermReadTable[unit].requestQueue.count > 0 && peek(TermReadTable[unit].requestQueue)->t_Op == USLOSS_TERM_READ && TermTable[unit].lineNumber>0){
 			temp = pop(&TermReadTable[unit].requestQueue);
 			
@@ -602,20 +601,20 @@ static int TermReader(char *arg){
 			temp->t_buff_size = strlen(tempBuff);
 		
 		// Turn off read inturrupts for terminals, enable elsewhere when starting reads.
-		if(TermReadTable[unit].requestQueue.count == 0){
 			control = 0;
 			control = USLOSS_TERM_CTRL_RECV_INT(control);
 			resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void*)(long)control);
 			pDebug(1," <- TermReader(): finished... term[%d] has no other requests!!!\n",unit,temp->t_buff_size,temp->t_buff,getpid()%MAXPROC,unit); 
-			if(debugVal>0)print_control(control);
-		}
+			if(debugVal>1)print_control(control);
 		
+			
 		// Unblock Calling Process
 		pDebug(1," <- TermReader(): finished request, [%d] remain. Unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p] by pid[%d]...\n",TermWriteTable[unit].requestQueue.count,temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff,getpid()%MAXPROC,unit);
 		semvReal(temp->semID);
 		}
 	}
-	pDebug(2," <- TermRead(): end \n");
+
+	pDebug(1," <- TermRead(): end \n");
 	return status;
 }
 
@@ -670,13 +669,15 @@ static int TermWriter(char *arg){
 				}
 						
 				// TermDriver says ok to write
-				pDebug(2," <- TermWriter(): Unit[%d.%d] Writing '%c' at index[%d] of %d\n",unit,temp->t_unit,writeBuffer[bytesWritten],bytesWritten,temp->t_buff_size);
+				pDebug(3," <- TermWriter(): Unit[%d.%d] Writing '%c' at index[%d] of %d\n",unit,temp->t_unit,writeBuffer[bytesWritten],bytesWritten,temp->t_buff_size);
 				control = 0;
 				control = USLOSS_TERM_CTRL_XMIT_INT(control);
 				control = USLOSS_TERM_CTRL_RECV_INT(control);
 				control =  USLOSS_TERM_CTRL_CHAR(control, writeBuffer[bytesWritten]);
 				control =  USLOSS_TERM_CTRL_XMIT_CHAR(control);
-				if(debugVal>0){print_control(control);}
+				
+				if(debugVal>2){print_control(control);}
+				
 				// Increment Bytes written
 				bytesWritten++;
 				
@@ -1091,9 +1092,9 @@ int termReadReal(int unit, int size, char *buff){
 	push(&TermReadTable[unit].requestQueue,(long long)time(NULL),&ProcTable[getpid()%MAXPROC]);
 	
 	// Let TermReader know there is a terminal to read
-	//control = USLOSS_TERM_CTRL_RECV_INT(control);
-	//resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
-	//pDebug(1," <- termReadReal(): DeviceOutput result[%d]\n",resultD);
+	// control = USLOSS_TERM_CTRL_RECV_INT(control);
+	// resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
+	// pDebug(1," <- termReadReal(): DeviceOutput result[%d]\n",resultD);
 	
 	// Block Calling Process.
 	pDebug(1," <- termReadReal(): Before Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
