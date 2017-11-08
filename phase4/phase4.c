@@ -27,6 +27,7 @@ termTable TermReadTable[USLOSS_TERM_UNITS];
 termTable TermWriteTable[USLOSS_TERM_UNITS];
 MinQueue SleepList;
 char diskOps[5][20] = {"USLOSS_DISK_READ","USLOSS_DISK_WRITE","USLOSS_DISK_SEEK","USLOSS_DISK_TRACKS","USLOSS_DISK_SIZE"};
+char *status2str[] = {"ready", "busy", "error"};
 
 /*****************************************************
 *             ProtoTypes
@@ -179,7 +180,7 @@ void start3(void){
 		sempReal(mainSemaphore);
     }
 
-	 /*
+	/*
      * Create terminal read device drivers.
      */
     for (i = 0; i < USLOSS_TERM_UNITS; i++) {
@@ -193,7 +194,7 @@ void start3(void){
 		sempReal(mainSemaphore);
     }
 	
-		 /*
+	/*
      * Create terminal write device drivers.
      */
     for (i = 0; i < USLOSS_TERM_UNITS; i++) {
@@ -214,7 +215,7 @@ void start3(void){
      * I'm assuming kernel-mode versions of the system calls
      * with lower-case first letters, as shown in provided_prototypes.h
      */
-	 	if(debugVal>1){
+	if(debugVal>1){
 		dumpProcesses();
 		dt4();
 		dp4();
@@ -238,7 +239,6 @@ void start3(void){
 		pDebug(1," <- zapping disk[%d] pid[%d]...\n",i,DiskTable[i].pid);
 		semvReal(DiskTable[i].semID);
 		zap(DiskTable[i].pid);  // clock driver
-		join(&status);
 	}
 	
 	// zap read terminals
@@ -246,16 +246,13 @@ void start3(void){
 		pDebug(1," <- zapping read terminal[%d] pid[%d]...\n",i,TermReadTable[i].pid);
 		semvReal(TermReadTable[i].semID);
 		zap(TermReadTable[i].pid);
-		join(&status);
 	}
 	
 	// zap write terminals
 	for (i=0;i<USLOSS_TERM_UNITS;i++){
 		pDebug(1," <- zapping write terminal[%d] pid[%d]...\n",i,TermWriteTable[i].pid);
-		//semvReal(TermWriteTable[i].semID);
-		MboxRelease(TermWriteTable[i].mBoxID);
+		semvReal(TermWriteTable[i].semID);
 		zap(TermWriteTable[i].pid);
-		join(&status);
 	}
 
 	// zap terminals
@@ -276,17 +273,13 @@ void start3(void){
         fclose(termIn);
 
 		//print_control(control);
-		//semvReal(TermTable[i].semID);
-
-		MboxRelease(TermWriteTable[i].mBoxID);
+		semvReal(TermTable[i].semID);
 		zap(TermTable[i].pid);
-		join(&status);
 	}
 	
 	// zap clock driver
 	pDebug(1," <- zapping clock pid[%d]...\n",clockPID);
 	
-	//MboxRelease(0);
     zap(clockPID);  
 
     // eventually, at the end:
@@ -294,18 +287,17 @@ void start3(void){
     
 }
 
-char *status2str[] = {"ready", "busy", "error"};
-
-void print_status(int status) {
-    printf("status: char: %c xmit: %s recv: %s\n", USLOSS_TERM_STAT_CHAR(status),
-           status2str[USLOSS_TERM_STAT_XMIT(status)],
-           status2str[USLOSS_TERM_STAT_RECV(status)]);
-}
-
 /*************************************************************************
 *
 *                           DRIVERS
 *
+*************************************************************************/
+
+
+/*************************************************************************
+* DiskDriver 
+*   - If there is a drive request on the queue, then we furfill
+*     it in USLOSS with proper seeks, peeks, and waitDevices
 *************************************************************************/
 static int DiskDriver(char *arg){
     pDebug(2," <- DiskDriver(): start \n");
@@ -444,7 +436,7 @@ static int DiskDriver(char *arg){
 				printQ(DiskTable[unit].DriveQueueR,"Disk[%d] Right",unit);
 			}
 			
-			// TODO: Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek
+			// TODONE: Q)Does the drive execute at DeviceOutput or waitDevice? If waitDevice pop here, otherwise pop uptop in stead of peek A)WaiteDevice, and peek top
 			
 			// Remove process just used for disk action from proper queue. 
 			// If queue is empty, change drive direction (even though we are not using scan)
@@ -472,6 +464,12 @@ static int DiskDriver(char *arg){
 	return status;
 }
 
+/*************************************************************************
+* TermDriver 
+* - sits in a waitDevice for an USLOSS inturrupt control change to
+*   determine if write/read is taking place, can perform both a write/
+*	read during the same inturrupt
+*************************************************************************/
 static int TermDriver(char *arg){
     pDebug(2," <- TermDriver(): start \n");
     int result = 0;
@@ -533,6 +531,12 @@ static int TermDriver(char *arg){
 	return status;
 }
 
+/*************************************************************************
+* TermReader
+* - Reads multiple lines into a read-ahead buffer of 10 lines, discards
+*   lines not chars. If request on queue, furfills it removing line from
+*	buffer and advancing them to 0 index. Sets size of chars actual recv.
+*************************************************************************/
 static int TermReader(char *arg){
     pDebug(2," <- TermReader(): start \n");
     int status = 0;
@@ -543,8 +547,6 @@ static int TermReader(char *arg){
 	resultD = resultD;
 	int control = 0;
 	char line_buffer[MAXLINE];
-	//for(i=0;i<MAXLINE;i++)
-	//	line_buffer[i] = '\0';
 	bzero(line_buffer, MAXLINE);
 	
     // Let the parent know we are running and enable interrupts.
@@ -556,10 +558,6 @@ static int TermReader(char *arg){
 	sprintf(TermReadTable[unit].type,"Reader %d",unit);
 	TermReadTable[unit].semID = semcreateReal(0);
 	TermReadTable[unit].mBoxID = MboxCreate(0,0);
-    
-	// Let TermReader know there is a terminal to read
-	//control = USLOSS_TERM_CTRL_RECV_INT(control);
-	//resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
 	
 	// Infinite loop until we are zap'd
 	while(! isZapped()) {
@@ -631,6 +629,12 @@ static int TermReader(char *arg){
 	return status;
 }
 
+/*************************************************************************
+* TermWriter
+* - writes char one at a time to USLOSS waiting for XMIT to occur
+*	then removes request from queue and wakes up calling pid. Enables
+*	writes/reads inturrupts, turning off XMIT when request is furfilled.
+*************************************************************************/
 static int TermWriter(char *arg){
     pDebug(2," <- TermWriter(): start \n");
     int result = 0;
@@ -640,7 +644,6 @@ static int TermWriter(char *arg){
 	resultD = resultD;
 	int control = 0;
 	int unit = atoi(arg);
-	int msg;
 	
     // Let the parent know we are running and enable interrupts.
     semvReal(mainSemaphore);
@@ -650,17 +653,14 @@ static int TermWriter(char *arg){
 	TermWriteTable[unit].pid = getpid();
 	sprintf(TermWriteTable[unit].type,"Writer %d",unit);
 	TermWriteTable[unit].semID = semcreateReal(0);
-	TermWriteTable[unit].mBoxID = MboxCreate(4,100);
+	TermWriteTable[unit].mBoxID = MboxCreate(0,0);
 	TermWriteTable[unit].t_write_semID = semcreateReal(1);
-	
-
 	
     // Infinite loop until we are zap'd
     while(! isZapped()) {
 		// Block TermWriter waiting request to write
 		pDebug(1," <- TermWriter(): Before block on TermWriter Unit[%d] \n",unit);
-		//sempReal(TermWriteTable[unit].semID);
-		MboxReceive(TermWriteTable[unit].mBoxID,&msg,sizeof(void*));
+		sempReal(TermWriteTable[unit].semID);
 		pDebug(1," <- TermWriter(): Unit[%d] After block on TermWriter semID[%d] requestCount[%d]\n",unit,	TermWriteTable[unit].semID,TermWriteTable[unit].requestQueue.count);
 		
 		// If zapped while blocked return
@@ -723,6 +723,10 @@ static int TermWriter(char *arg){
 	return status;
 }
 
+/*************************************************************************
+* ClockDriver
+* - Loops waiting to see if a process timeout has been lifted.
+*************************************************************************/
 static int ClockDriver(char *arg){
 	pDebug(2," <- ClockDriver(): start \n");
     int result;
@@ -1172,15 +1176,16 @@ int termWriteReal(int unit, int size, char *buff){
 	pDebug(1," <- termWriteReal(): pid[%d] pushing Request to TermWriter[%d] size[%d] buff[%p]\n",ProcTable[getpid()%MAXPROC].pid,unit,size,buff);
 	
 	// Unblock here unlike TermRead?
-	//semvReal(TermWriteTable[unit].semID);
-	int msg =1;
-	MboxSend(TermWriteTable[unit].mBoxID,&msg,sizeof(void*));
+	semvReal(TermWriteTable[unit].semID);
 	
 	// Block Calling Process.
 	pDebug(1," <- termWriteReal(): Before Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	sempReal(ProcTable[getpid()%MAXPROC].semID);
 	pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	ProcTable[getpid()%MAXPROC].status = STATUS_QUIT;
+	
+	// If this term unit reader is blocked, and USLOSS has finished reading terminals,
+	// a unblock of the termteader is required here.
 	int control = 0;
 	control = USLOSS_TERM_CTRL_RECV_INT(control);
 	control = USLOSS_TERM_CTRL_XMIT_INT(control);
@@ -1192,16 +1197,11 @@ int termWriteReal(int unit, int size, char *buff){
 	return 0;
 }
 
-
-
-
-
 /*************************************************************************
 *
 *                           UTILITIES
 *
 *************************************************************************/
-
 void print_control(int control) {
     printf("control: char: %c", (control >> 8) & 0xff);
     if (control & 4) {
@@ -1214,6 +1214,16 @@ void print_control(int control) {
         printf(", send char");
     }
     printf("\n");
+}
+
+/*************************************************************************
+* print_status prints - USLOSS current status of XMIT/RECV inturrupts and
+* char in send
+*************************************************************************/
+void print_status(int status) {
+    printf("status: char: %c xmit: %s recv: %s\n", USLOSS_TERM_STAT_CHAR(status),
+           status2str[USLOSS_TERM_STAT_XMIT(status)],
+           status2str[USLOSS_TERM_STAT_RECV(status)]);
 }
 
  /*****************************************************************************
