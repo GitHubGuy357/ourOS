@@ -24,6 +24,7 @@ void test_cleanup(int argc, char *argv[])
 
 static char sectors[3 * 512];
 static char copy[3 * 512];
+
 int start4(char *arg)
 {
     int result;
@@ -36,12 +37,19 @@ int start4(char *arg)
     strcpy(&sectors[0 * 512], "This is a test\n");
     strcpy(&sectors[1 * 512], "Does it work?\n");
     strcpy(&sectors[2 * 512], "One last chance\n");
+    // Patrick result = DiskWrite((char *) sectors, 0, 4, 15, 3, &status);
+    // assert(result == 0);
     result = DiskWrite((char *) sectors, 0, 4, 15, 3, &status);
-    assert(result == 0);
+
+    result = DiskWrite((char *) sectors, 1, 4, 15, 1, &status);
+    result = DiskWrite((char *) sectors + 512, 1, 5, 0, 1, &status);
+    result = DiskWrite((char *) sectors + 1024, 1, 5, 1, 1, &status);
+
     result = DiskRead((char *) copy, 0, 4, 15, 3, &status);
     USLOSS_Console("start4(): Read from disk: %s\n", &copy[0*512]);
     USLOSS_Console("start4(): Read from disk: %s\n", &copy[1*512]);
     USLOSS_Console("start4(): Read from disk: %s\n", &copy[2*512]);
+
 
     USLOSS_Console("\nstart4(): Disk 1:\n");
     strcpy(&sectors[0 * 512], "This is a test -- something different for this disk\n");

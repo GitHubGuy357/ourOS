@@ -20,7 +20,6 @@ Child 1: A Something interesting to print here...one
 Child 2: A Something interesting to print here...second
 Child 3: A Something interesting to print here...three
 */
-
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>

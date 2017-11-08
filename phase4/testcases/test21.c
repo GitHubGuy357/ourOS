@@ -1,6 +1,3 @@
-#include <stdio.h>
-#include <usloss.h>
-#include <usyscall.h>
 /*
 term0.out
 zero: first line
@@ -17,6 +14,9 @@ term1.out
 term2.out
 term3.out
 */
+#include <stdio.h>
+#include <usloss.h>
+#include <usyscall.h>
 #include <libuser.h>
 #include <assert.h>
 #include <phase1.h>
