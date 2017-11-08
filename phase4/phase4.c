@@ -257,22 +257,30 @@ void start3(void){
 		zap(TermWriteTable[i].pid);
 		join(&status);
 	}
-	
+
 	// zap terminals
 	for (i=0;i<USLOSS_TERM_UNITS;i++){
 		pDebug(1," <- zapping terminal[%d] pid[%d]...\n",i,TermTable[i].pid);
-	//	MboxRelease(i+3);
-	
-		// This tell USLOSS it has a character, even though it does, to make it break out of the wait to be zapped
-		int control = 7;
-		int resultD = 0;
-		resultD = resultD;
-		control = USLOSS_TERM_CTRL_RECV_INT(control);
+
+	// This tell USLOSS it has a more in the term.in to read, to make it break out of the wait to be zapped
+		long control = 0;
+		int resultD;
+		char term_[20];
+        control = USLOSS_TERM_CTRL_RECV_INT(control);
 		resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void*)(long)control);
+		resultD = resultD;
+        sprintf(term_, "term%d.in", i);
+        FILE *termIn = fopen(term_, "a+");
+        fprintf(termIn, "zap\n");
+        fflush(termIn);
+        fclose(termIn);
+
+		//print_control(control);
 		//semvReal(TermTable[i].semID);
+
 		MboxRelease(TermWriteTable[i].mBoxID);
 		zap(TermTable[i].pid);
-				join(&status);
+		join(&status);
 	}
 	
 	// zap clock driver
