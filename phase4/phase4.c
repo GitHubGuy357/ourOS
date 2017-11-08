@@ -266,7 +266,7 @@ void start3(void){
 		// This tell USLOSS it has a character, even though it does, to make it break out of the wait to be zapped
 		int control = 7;
 		int resultD = 0;
-
+		resultD = resultD;
 		control = USLOSS_TERM_CTRL_RECV_INT(control);
 		resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void*)(long)control);
 		//semvReal(TermTable[i].semID);
@@ -383,7 +383,7 @@ static int DiskDriver(char *arg){
 			while(curSectorsToWrite > 0){
 				if(curSector == DiskTable[temp->unit].disk_track_size){
 					pDebug(1," <- DiskDriver(): Disk[%d] Track Wrap around....curTrack[%d] & curSector[%d]",temp->unit, curTrack,curSector);
-					curTrack = curTrack; //curTrack+1%DiskTable[temp->unit].disk_track_size; //curTrack;
+					curTrack = curTrack+1%DiskTable[temp->unit].disk_track_size; //curTrack;
 					curSector = 0;
 					pDebug(1," to newTrack[%d] & newSector[%d]\n",curTrack,curSector);
 				
@@ -470,8 +470,7 @@ static int TermDriver(char *arg){
 	int resultD = 0;
     int status = 0;
 	int unit = atoi(arg);
-	char charReceived;
-	int index = 0;
+	char charReceived='_';;
 	int control = 0;
 	
     // Let the parent know we are running and enable interrupts.
@@ -487,6 +486,7 @@ static int TermDriver(char *arg){
 	// Let TermReader know there is a terminal to read
 	control = USLOSS_TERM_CTRL_RECV_INT(control);
 	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
+	resultD = resultD;
 	
     // Infinite loop until we are zap'd
     while(! isZapped()) {
@@ -505,7 +505,7 @@ static int TermDriver(char *arg){
 		//TODO: I think we received something
 		if(USLOSS_TERM_STAT_RECV(control) == USLOSS_DEV_BUSY){
 			// Char has been received
-			char charReceived = USLOSS_TERM_STAT_CHAR(control);
+			charReceived = USLOSS_TERM_STAT_CHAR(control);
 			TermReadTable[unit].receiveChar = charReceived;
 			pDebug(3," <- TermDriver(): Term[%d] received char[%c], waking up TermWriter[%d]...\n",unit,charReceived,unit);
 			
@@ -532,6 +532,7 @@ static int TermReader(char *arg){
 	procPtr temp = NULL;
 	int index=0;
 	int resultD = 0;
+	resultD = resultD;
 	int control = 0;
 	char line_buffer[MAXLINE];
 	//for(i=0;i<MAXLINE;i++)
@@ -604,12 +605,13 @@ static int TermReader(char *arg){
 			temp->t_buff_size = strlen(tempBuff);
 		
 		// Turn off read inturrupts for terminals, enable elsewhere when starting reads.
+		if(TermReadTable[unit].requestQueue.count == 0){
 			control = 0;
 			control = USLOSS_TERM_CTRL_RECV_INT(control);
 			resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, i, (void*)(long)control);
 			pDebug(1," <- TermReader(): finished... term[%d] has no other requests!!!\n",unit,temp->t_buff_size,temp->t_buff,getpid()%MAXPROC,unit); 
 			if(debugVal>1)print_control(control);
-		
+		}
 			
 		// Unblock Calling Process
 		pDebug(1," <- TermReader(): finished request, [%d] remain. Unblocking calling process [%d] that requested term[%d] size[%d] buffer[%p] by pid[%d]...\n",TermWriteTable[unit].requestQueue.count,temp->pid,temp->t_unit,temp->t_buff_size,temp->t_buff,getpid()%MAXPROC,unit);
@@ -624,8 +626,10 @@ static int TermReader(char *arg){
 static int TermWriter(char *arg){
     pDebug(2," <- TermWriter(): start \n");
     int result = 0;
+	result = result;
     int status = 0;
 	int resultD = 0;
+	resultD = resultD;
 	int control = 0;
 	int unit = atoi(arg);
 	int msg;
@@ -688,17 +692,17 @@ static int TermWriter(char *arg){
 					resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 	
 				}				
 			}
+			
 			temp->t_buff_size = bytesWritten;
+			
 			//printQ(TermWriteTable[unit].requestQueue," <- Write");
+			
 			pop(&TermWriteTable[temp->t_unit].requestQueue);
-			if(TermWriteTable[unit].requestQueue.count == 0){
-				//Turn XMIT off and RECV on
-				control = 0;
-				control = USLOSS_TERM_CTRL_RECV_INT(control);
-				resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
+			//Turn XMIT off and RECV on
+			control = 0;
+			control = USLOSS_TERM_CTRL_RECV_INT(control);
+			resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control);
 
-				//dumpProcesses();
-			}
 
 
 			// Unblock Calling Process
@@ -1078,7 +1082,8 @@ void termRead(USLOSS_Sysargs *args){
 }
 
 int termReadReal(int unit, int size, char *buff){
-	int resultD = 0;	
+	int resultD = 0;
+	resultD = resultD;	
 	// Check if device call is valid range
 	if(unit <0 || unit >USLOSS_TERM_UNITS || size < 1)
 		return -1;
@@ -1169,9 +1174,10 @@ int termWriteReal(int unit, int size, char *buff){
 	pDebug(1," <- termWriteReal(): After Block calling pid[%d]\n",ProcTable[getpid()%MAXPROC].pid);
 	ProcTable[getpid()%MAXPROC].status = STATUS_QUIT;
 	int control = 0;
-	control = USLOSS_TERM_CTRL_XMIT_INT(control);
 	control = USLOSS_TERM_CTRL_RECV_INT(control);
+	control = USLOSS_TERM_CTRL_XMIT_INT(control);
 	int	resultD = USLOSS_DeviceOutput(USLOSS_TERM_DEV, unit, (void*)(long)control); 
+	resultD = resultD;
 	TermReadTable[unit].receiveChar = '\0';
 	semvReal(TermReadTable[unit].semID);
 	//dt4();
