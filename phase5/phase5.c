@@ -17,9 +17,9 @@
 
 #include <vm.h>
 #include <string.h>
+#include <stdio.h>
 
-
-int     debugVal = 0; // 0 == off to 3 == most debug info
+int     debugVal = 3; // 0 == off to 3 == most debug info
 
 /*****************************************************
 *             Globals
@@ -32,14 +32,19 @@ FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * and index them by pid. */
 VmStats  vmStats;
 void *vmRegion;
+char buf[MAXARG];
+char name[MAXNAME];
+int i;
 
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
-extern  int  start5(char * name); // Had to add for Dr. Homers testcases to be forked in Phase5 code, obviously...
 void FaultHandler(int type, void * offset);
-void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
-void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
+void vmInit(USLOSS_Sysargs *args);
+void vmDestroy(USLOSS_Sysargs *args);
+extern  int  start5(char * name); // Had to add for Dr. Homers testcases to be forked in Phase5 code, obviously...
+int pDebug(int level, char *fmt, ...);
+static int Pager(char *buf);
 
 /*
  *----------------------------------------------------------------------
@@ -56,12 +61,12 @@ void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
  *
  *----------------------------------------------------------------------
  */
-int
-start4(char *arg) {
+int start4(char *arg) {
     int pid;
     int result;
     int status;
 
+	pDebug(3,"start4(): start\n");
     /* to get user-process access to mailbox functions */
     systemCallVec[SYS_MBOXCREATE]      = mbox_create;
     systemCallVec[SYS_MBOXRELEASE]     = mbox_release;
@@ -73,11 +78,14 @@ start4(char *arg) {
     /* user-process access to VM functions */
     systemCallVec[SYS_VMINIT]    = vmInit;
     systemCallVec[SYS_VMDESTROY] = vmDestroy; 
+	
+	pDebug(3,"start4(): Before spawn testcases start5\n");
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
         USLOSS_Console("start4(): Error spawning start5\n");
         Terminate(1);
     }
+	pDebug(3,"start4(): Before wait\n");
     result = Wait(&pid, &status);
     if (result != 0) {
         USLOSS_Console("start4(): Error waiting for start5\n");
@@ -106,10 +114,24 @@ start4(char *arg) {
  * Side effects:
  *      VM system is initialized.
  *
+ *arg1: number of mappings the MMU should hold
+ *arg2: number of virtual pages to use
+ *arg3: number of physical page frames to use
+ *arg4: number of pager daemons
+ * 
+ *Output
+ *arg1: address of the first byte in the VM region
+ *arg4: -1 if illegal values are given as input; -2 if the VM region has already been
+ *		initialized; 0 otherwise.
  *----------------------------------------------------------------------
  */
-void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr){
+void vmInit(USLOSS_Sysargs *args){
+	pDebug(3,"vmInit(): start\n");
     CheckMode();
+	void* returnVal = vmInitReal((long)args->arg1,(long)args->arg2,(long)args->arg3,(long)args->arg4);
+	args->arg1 = vmRegion;
+	args->arg4 = returnVal;
+	pDebug(3,"vmInit(): end\n");
 } /* vmInit */
 
 /*
@@ -126,23 +148,37 @@ void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr){
  *
  * Side effects:
  *      The MMU is initialized.
- *
+
+ * USLOSS_MMU_OK No error.
+ * USLOSS_MMU_ERR_OFF MMU has not been initialized.
+ * USLOSS_MMU_ERR_ON MMU has already been initialized.
+ * USLOSS_MMU_ERR_PAGE Invalid page number.
+ * USLOSS_MMU_ERR_FRAME Invalid frame number.
+ * USLOSS_MMU_ERR_PROT Invalid protection.
+ * USLOSS_MMU_ERR_TAG Invalid tag.
+ * USLOSS_MMU_ERR_REMAP Mapping with same tag & page already exists.
+ * USLOSS_MMU_ERR_NOMAP Mapping not found.
+ * USLOSS_MMU_ERR_ACC Invalid access bits.
+ * USLOSS_MMU_ERR_MAPS Too many mappings.
+ * USLOSS_MMU_ERR_MODE Operation is invalid in the current MMU mode.
  *----------------------------------------------------------------------
  */
 void *vmInitReal(int mappings, int pages, int frames, int pagers){
+   pDebug(3,"vmInitReal(): start\n");
    int status;
-   int dummy;
+   int dummy = pages;
+   int pid;
 
    CheckMode();
    status = USLOSS_MmuInit(mappings, pages, frames, USLOSS_MMU_MODE_TLB);
    if (status != USLOSS_MMU_OK) {
-      USLOSS_Console("vmInitReal: couldn't initialize MMU, status %d\n", status);
-      abort();
+	  USLOSS_Console("vmInitReal: couldn't initialize MMU, status %d\n", status);
+	  abort();
    }
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
    /*
-    * Initialize page tables.
+	* Initialize page tables.
     */
 
    /* 
@@ -152,7 +188,15 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
    /*
     * Fork the pagers.
     */
-
+    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+        sprintf(buf, "%d", i);
+		sprintf(name, "Pager %d", i);
+        pid = fork1(name, Pager, buf, USLOSS_MIN_STACK*2, 2);
+        if (pid < 0) {
+            USLOSS_Console("start3(): Can't create pager driver %d\n", i);
+            USLOSS_Halt(1);
+        }
+    }
    /*
     * Zero out, then initialize, the vmStats structure
     */
@@ -162,7 +206,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
    /*
     * Initialize other vmStats fields.
     */
-
+   pDebug(3,"vmInitReal(): end\n");
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
 
@@ -182,8 +226,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
  *----------------------------------------------------------------------
  */
 
-void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr){
+void vmDestroy(USLOSS_Sysargs *args){
+   pDebug(3,"vmDestroy(): start\n");
    CheckMode();
+   pDebug(3,"vmDestroy(): end\n");
 } /* vmDestroy */
 
 
@@ -206,7 +252,7 @@ void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr){
  *----------------------------------------------------------------------
  */
 void vmDestroyReal(void){
-
+   pDebug(3,"vmDestroyReal(): start\n");
    CheckMode();
    USLOSS_MmuDone();
    /*
@@ -220,7 +266,7 @@ void vmDestroyReal(void){
    USLOSS_Console("frames: %d\n", vmStats.frames);
    USLOSS_Console("blocks: %d\n", vmStats.blocks);
    /* and so on... */
-
+   pDebug(3,"vmDestroyReal(): end\n");
 } /* vmDestroyReal */
 
 
@@ -274,6 +320,7 @@ void PrintStats(void){
  */
 //static void FaultHandler(int type /* MMU_INT */, int arg  /* Offset within VM region */){
 void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region */){
+   pDebug(3,"FaultHandler(): start\n");
    int cause;
 
    assert(type == USLOSS_MMU_INT);
@@ -284,6 +331,7 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
     * reply.
     */
+	pDebug(3,"FaultHandler(): end\n");
 } /* FaultHandler */
 
 
@@ -303,6 +351,7 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
  *----------------------------------------------------------------------
  */
 static int Pager(char *buf){
+	pDebug(3,"Pager(): end\n");
     while(1) {
         /* Wait for fault to occur (receive from mailbox) */
         /* Look for free frame */
@@ -311,6 +360,7 @@ static int Pager(char *buf){
         /* Load page into frame from disk, if necessary */
         /* Unblock waiting (faulting) process */
     }
+	pDebug(3,"Pager(): start\n");
     return 0;
 } /* Pager */
 

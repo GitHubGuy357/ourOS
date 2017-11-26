@@ -44,6 +44,8 @@ void FaultHandler(int type, void * offset);
 void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
 void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
 int VmInit(int mappings, int pages, int frames, int pagers, void **region);
+void *vmInitReal(int mappings, int pages, int frames, int pagers);
+void vmDestroyReal(void);
 int VmDestroy(void);
 
 #endif

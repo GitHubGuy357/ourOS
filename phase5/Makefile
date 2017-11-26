@@ -50,6 +50,8 @@ clean:
 	rm -f $(COBJS) $(TARGET) test?.o test? simple?.o simple? simple??.o simple?? gen.o gen \
 	chaos.o chaos quit.o quit replace?.o replace? outOfSwap.o \
 	outOfSwap clock.o clock core term[0-3].out
+	cp testcases/disk0.orig ./disk0
+	cp testcases/disk1.orig ./disk1
 
 submit: $(CSRCS) $(HDRS) $(TURNIN)
 	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile
