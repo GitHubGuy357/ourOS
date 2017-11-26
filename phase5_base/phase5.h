@@ -4,8 +4,6 @@
 #ifndef _PHASE5_H
 #define _PHASE5_H
 
-#define PHASE_3      // To get correct results from usyscall.h
-
 #include <usloss.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,5 +41,6 @@ typedef struct VmStats {
 } VmStats;
 
 extern VmStats	vmStats;
+//extern void PrintStats();
 
 #endif /* _PHASE5_H */

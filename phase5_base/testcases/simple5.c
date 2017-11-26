@@ -5,10 +5,10 @@
  * algorithm starts with frame 0, this will cause a page fault on every
  * access. 
  */
-#include <phase5.h>
-#include <usyscall.h>
-#include <libuser.h>
 #include <usloss.h>
+#include <usyscall.h>
+#include <phase5.h>
+#include <libuser.h>
 #include <string.h>
 #include <assert.h>
 
@@ -41,14 +41,14 @@ Child(char *arg)
     int      pid;
     int      page;
     int      i;
-    char     *buffer;
+    //char     *buffer;
     VmStats  before;
     int      value;
 
     GetPID(&pid);
     Tconsole("\nChild(%d): starting\n", pid);
 
-    buffer = (char *) vmRegion;
+    //buffer = (char *) vmRegion;
 
     for (i = 0; i < ITERATIONS; i++) {
         Tconsole("\nChild(%d): iteration %d\n", pid, i);

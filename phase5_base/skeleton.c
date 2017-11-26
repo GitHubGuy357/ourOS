@@ -6,23 +6,23 @@
  */
 
 
+#include <usyscall.h>
 #include <assert.h>
 #include <phase1.h>
 #include <phase2.h>
 #include <phase3.h>
 #include <phase4.h>
 #include <phase5.h>
-#include <usyscall.h>
 #include <libuser.h>
 #include <vm.h>
 #include <string.h>
 
-extern void mbox_create(sysargs *args_ptr);
-extern void mbox_release(sysargs *args_ptr);
-extern void mbox_send(sysargs *args_ptr);
-extern void mbox_receive(sysargs *args_ptr);
-extern void mbox_condsend(sysargs *args_ptr);
-extern void mbox_condreceive(sysargs *args_ptr);
+extern void mbox_create(USLOSS_Sysargs *args_ptr);
+extern void mbox_release(USLOSS_Sysargs *args_ptr);
+extern void mbox_send(USLOSS_Sysargs *args_ptr);
+extern void mbox_receive(USLOSS_Sysargs *args_ptr);
+extern void mbox_condsend(USLOSS_Sysargs *args_ptr);
+extern void mbox_condreceive(USLOSS_Sysargs *args_ptr);
 
 static Process processes[MAXPROC];
 
@@ -33,10 +33,10 @@ FaultMsg faults[MAXPROC]; /* Note that a process can have only
 VmStats  vmStats;
 
 
-static void FaultHandler(int type, int offset);
+static void FaultHandler(int type, void * offset);
 
-static void vmInit(sysargs *sysargsPtr);
-static void vmCleanup(sysargs *sysargsPtr);
+static void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
+static void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
 /*
  *----------------------------------------------------------------------
  *
@@ -69,8 +69,7 @@ start4(char *arg)
 
     /* user-process access to VM functions */
     sys_vec[SYS_VMINIT]    = vmInit;
-    sys_vec[SYS_VMCLEANUP] = vmCleanup;
-
+    sys_vec[SYS_VMDESTROY] = vmDestroy; 
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
         USLOSS_Console("start4(): Error spawning start5\n");
@@ -102,7 +101,7 @@ start4(char *arg)
  *----------------------------------------------------------------------
  */
 static void
-vmInit(sysargs *sysargsPtr)
+vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr)
 {
     CheckMode();
 } /* vmInit */
@@ -111,9 +110,9 @@ vmInit(sysargs *sysargsPtr)
 /*
  *----------------------------------------------------------------------
  *
- * vmCleanup --
+ * vmDestroy --
  *
- * Stub for the VmCleanup system call.
+ * Stub for the VmDestroy system call.
  *
  * Results:
  *      None.
@@ -125,10 +124,10 @@ vmInit(sysargs *sysargsPtr)
  */
 
 static void
-vmCleanup(sysargs *sysargsPtr)
+vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr)
 {
    CheckMode();
-} /* vmCleanup */
+} /* vmDestroy */
 
 
 /*
@@ -155,12 +154,12 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
    int dummy;
 
    CheckMode();
-   status = MMU_Init(mappings, pages, frames);
+   status = USLOSS_MmuInit(mappings, pages, frames, USLOSS_MMU_MODE_TLB);
    if (status != MMU_OK) {
       USLOSS_Console("vmInitReal: couldn't initialize MMU, status %d\n", status);
       abort();
    }
-   int_vec[MMU_INT] = FaultHandler;
+   USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
    /*
     * Initialize page tables.
@@ -184,7 +183,7 @@ vmInitReal(int mappings, int pages, int frames, int pagers)
     * Initialize other vmStats fields.
     */
 
-   return MMU_Region(&dummy);
+   return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
 
 
@@ -224,9 +223,9 @@ PrintStats(void)
 /*
  *----------------------------------------------------------------------
  *
- * vmCleanupReal --
+ * vmDestroyReal --
  *
- * Called by vmClean.
+ * Called by vmDestroy.
  * Frees all of the global data structures
  *
  * Results:
@@ -238,7 +237,7 @@ PrintStats(void)
  *----------------------------------------------------------------------
  */
 void
-vmCleanupReal(void)
+vmDestroyReal(void)
 {
 
    CheckMode();
@@ -255,7 +254,7 @@ vmCleanupReal(void)
    USLOSS_Console("blocks: %d\n", vmStats.blocks);
    /* and so on... */
 
-} /* vmCleanupReal */
+} /* vmDestroyReal */
 
 /*
  *----------------------------------------------------------------------
@@ -280,9 +279,9 @@ FaultHandler(int type /* MMU_INT */,
 {
    int cause;
 
-   assert(type == MMU_INT);
-   cause = MMU_GetCause();
-   assert(cause == MMU_FAULT);
+   assert(type == USLOSS_MMU_INT);
+   cause = USLOSS_MmuGetCause();
+   assert(cause == USLOSS_MMU_FAULT);
    vmStats.faults++;
    /*
     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the

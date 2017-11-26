@@ -7,10 +7,10 @@
  * faults.  Check determanistic statistics.
  */
 
-#include <phase5.h>
-#include <usyscall.h>
-#include <libuser.h>
 #include <usloss.h>
+#include <usyscall.h>
+#include <phase5.h>
+#include <libuser.h>
 #include <string.h>
 #include <assert.h>
 
