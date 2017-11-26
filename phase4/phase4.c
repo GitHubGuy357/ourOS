@@ -1,4 +1,18 @@
+/* ------------------------------------------------------------------------
+ phase4.c
 
+ University of Arizona
+ Computer Science 452
+ 
+ Group: James Rogers, Ben Shinohara, and Adam Shinohara
+
+ This code is used to simulate using terminals, disks, and clock Drivers
+ to control execution of critical sections in an operating system. 
+ This also requires that several interrupts be enabled,
+ and implemented. This code spawns user processes and also terminates them. 
+ semaphores or mailboxes used to control Drivers
+ ------------------------------------------------------------------------ */
+ 
 #include <usloss.h>
 #include <usyscall.h>
 #include "libuser.h"
