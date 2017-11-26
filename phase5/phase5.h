@@ -21,6 +21,9 @@
  */
 #define MAXPAGERS 4
 
+#define FRAME_UNUSED 10
+#define FRAME_USED 11
+
 /*
  * Paging statistics
  */

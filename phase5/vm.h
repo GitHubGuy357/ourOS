@@ -27,12 +27,24 @@ typedef struct PTE {
 } PTE;
 
 /*
+ * Frame table entry.
+ */
+typedef struct FTE {
+    int  state;      // See above.
+    int  frame;      // Frame that stores the page (if any). -1 if none.
+	int  page;
+    int  procPID;
+	struct FTE  *next;
+} FTE;
+
+/*
  * Per-process information.
  */
 typedef struct Process {
     int  numPages;   // Size of the page table.
     PTE  *pageTable; // The page table for the process.
     // Add more stuff here */
+	int privateMBox;
 } Process;
 
 /*

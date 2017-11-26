@@ -25,7 +25,7 @@ int     debugVal = 3; // 0 == off to 3 == most debug info
 *             Globals
 *****************************************************/
 void (*systemCallVec[MAXSYSCALLS])(USLOSS_Sysargs *args);
-static Process processes[MAXPROC];
+//static Process processes[MAXPROC];
 FaultMsg faults[MAXPROC]; /* Note that a process can have only
                            * one fault at a time, so we can
                            * allocate the messages statically
@@ -35,6 +35,12 @@ void *vmRegion;
 char buf[MAXARG];
 char name[MAXNAME];
 int i;
+Process ProcTable5[MAXPROC];
+FTE *FrameTable; // Pointer as we do not know the amount of frames ahead of time. This is why we finally use malloc!
+FaultMsg FaultTable[MAXPROC];
+int fault_mbox;
+int VMInitialized = 0;
+
 
 /*****************************************************
 *             ProtoTypes
@@ -114,14 +120,15 @@ int start4(char *arg) {
  * Side effects:
  *      VM system is initialized.
  *
- *arg1: number of mappings the MMU should hold
- *arg2: number of virtual pages to use
- *arg3: number of physical page frames to use
- *arg4: number of pager daemons
+ * Input
+ *	arg1: number of mappings the MMU should hold
+ *	arg2: number of virtual pages to use
+ *	arg3: number of physical page frames to use
+ *	arg4: number of pager daemons
  * 
- *Output
- *arg1: address of the first byte in the VM region
- *arg4: -1 if illegal values are given as input; -2 if the VM region has already been
+ * Output
+ *	arg1: address of the first byte in the VM region
+ *	arg4: -1 if illegal values are given as input; -2 if the VM region has already been
  *		initialized; 0 otherwise.
  *----------------------------------------------------------------------
  */
@@ -129,8 +136,14 @@ void vmInit(USLOSS_Sysargs *args){
 	pDebug(3,"vmInit(): start\n");
     CheckMode();
 	void* returnVal = vmInitReal((long)args->arg1,(long)args->arg2,(long)args->arg3,(long)args->arg4);
-	args->arg1 = vmRegion;
-	args->arg4 = returnVal;
+	args->arg1 = returnVal;
+	
+	// If return val is < 0 MMU has been initialized or illegal values were given. Else return 0 for success.
+	if(returnVal < 0)
+		args->arg4 = returnVal;
+	else
+		args->arg4 = (void*)(long)0;
+	
 	pDebug(3,"vmInit(): end\n");
 } /* vmInit */
 
@@ -148,7 +161,7 @@ void vmInit(USLOSS_Sysargs *args){
  *
  * Side effects:
  *      The MMU is initialized.
-
+ * 
  * USLOSS_MMU_OK No error.
  * USLOSS_MMU_ERR_OFF MMU has not been initialized.
  * USLOSS_MMU_ERR_ON MMU has already been initialized.
@@ -166,34 +179,70 @@ void vmInit(USLOSS_Sysargs *args){
 void *vmInitReal(int mappings, int pages, int frames, int pagers){
    pDebug(3,"vmInitReal(): start\n");
    int status;
-   int dummy = pages;
+   int dummy;
    int pid;
 
+   // Check for invalid arguments, return -1 if invalid
+   if(pagers > MAXPAGERS)
+	   return (void*)-1;
+   
+   // Check if VM has allready been initialized
+   if(VMInitialized == 1)
+	   return (void*)-2;
+   
+   // Check if we are in kernal?
    CheckMode();
+   
+   // Initialize MMU Unit
    status = USLOSS_MmuInit(mappings, pages, frames, USLOSS_MMU_MODE_TLB);
    if (status != USLOSS_MMU_OK) {
 	  USLOSS_Console("vmInitReal: couldn't initialize MMU, status %d\n", status);
 	  abort();
    }
+   
+   // Set Systemcall vec to point to our FaultHandler
    USLOSS_IntVec[USLOSS_MMU_INT] = FaultHandler;
 
    /*
 	* Initialize page tables.
     */
+	status = USLOSS_MmuInit(mappings,pages,frames,USLOSS_MMU_MODE_PAGETABLE);
 
    /* 
     * Create the fault mailbox.
     */
+	fault_mbox = MboxCreate(pagers,sizeof(void*));
+	
+	// Create All 50 possible processes
+    for (i=0; i<MAXPROC; i++){
+	    ProcTable5[i].numPages = pages;
+		ProcTable5[i].pageTable =  NULL;        
+		ProcTable5[i].privateMBox = MboxCreate(0,0);
+		FaultTable[i].replyMbox = -1;
+    }
+	
+	// Initialize frame table
+	FrameTable = malloc(sizeof(FTE)*frames);
+	
+	// Initialize each frame requested
+	FTE *temp = FrameTable;
+	for (i=0;i<frames;i++){
+		temp->state = FRAME_UNUSED;
+		temp->frame = i;
+		temp->page = -1;
+		temp->procPID = -1;
+		temp->next = &FrameTable[i+1];
+	}
 
    /*
     * Fork the pagers.
     */
-    for (i = 0; i < USLOSS_TERM_UNITS; i++) {
+    for (i = 0; i < pagers; i++) {
         sprintf(buf, "%d", i);
 		sprintf(name, "Pager %d", i);
-        pid = fork1(name, Pager, buf, USLOSS_MIN_STACK*2, 2);
+        pid = fork1(name, Pager, buf, USLOSS_MIN_STACK*2, PAGER_PRIORITY);
         if (pid < 0) {
-            USLOSS_Console("start3(): Can't create pager driver %d\n", i);
+            USLOSS_Console("vmInitReal(): Can't create pager driver %d\n", i);
             USLOSS_Halt(1);
         }
     }
@@ -207,6 +256,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
     * Initialize other vmStats fields.
     */
    pDebug(3,"vmInitReal(): end\n");
+   
+   // Bookeeping, VM Region has been created!
+   VMInitialized = 1;
+   
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
 
@@ -252,9 +305,11 @@ void vmDestroy(USLOSS_Sysargs *args){
  *----------------------------------------------------------------------
  */
 void vmDestroyReal(void){
+   int status = -1;
    pDebug(3,"vmDestroyReal(): start\n");
    CheckMode();
-   USLOSS_MmuDone();
+   status = USLOSS_MmuDone();
+   status=status; //Stop warnings
    /*
     * Kill the pagers here.
     */
@@ -331,6 +386,17 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
     * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
     * reply.
     */
+	FaultTable[getpid()%MAXPROC].pid = getpid();
+	FaultTable[getpid()%MAXPROC].addr = arg;
+	pDebug(1,"FaultHandler(): FaultTable[%d] addr[%p] mBox[%d]\n",FaultTable[getpid()%MAXPROC].pid,FaultTable[getpid()%MAXPROC].addr,FaultTable[getpid()%MAXPROC].replyMbox );
+	if(FaultTable[getpid()%MAXPROC].replyMbox == -1)
+		FaultTable[getpid()%MAXPROC].replyMbox = MboxCreate(0,0);
+
+	pDebug(1,"FaultHandler(): Before send Fault @ [%p] to mbox[%d] msg_size[%d]\n",&FaultTable[getpid()%MAXPROC],fault_mbox,sizeof(void*));
+	MboxSend(fault_mbox,&FaultTable[getpid()%MAXPROC],sizeof(void*));
+	
+	pDebug(1,"FaultHandler(): Before Recv on FaultTable replyMbox\n");
+	MboxReceive(FaultTable[getpid()%MAXPROC].replyMbox,&FaultTable[getpid()%MAXPROC],sizeof(void*));
 	pDebug(3,"FaultHandler(): end\n");
 } /* FaultHandler */
 
@@ -351,16 +417,26 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
  *----------------------------------------------------------------------
  */
 static int Pager(char *buf){
-	pDebug(3,"Pager(): end\n");
+	pDebug(3,"Pager(): start\n");
+	void* recv_buff;
     while(1) {
+		MboxReceive(fault_mbox,&recv_buff,sizeof(void*));
+		pDebug(3,"Pager(): start\n");
+		pDebug(1, "Pager(): Faulting...recv_buff = [%p]\n",recv_buff);
+		FaultMsg *fm = ((FaultMsg*)recv_buff);
+		pDebug(1,"Pager(); FaultTable addr[%p]\n",fm);
         /* Wait for fault to occur (receive from mailbox) */
         /* Look for free frame */
         /* If there isn't one then use clock algorithm to
          * replace a page (perhaps write to disk) */
         /* Load page into frame from disk, if necessary */
         /* Unblock waiting (faulting) process */
+		
+		//Page fault handled, wake up faulting process
+		//MboxSend(((FaultMsg*)recv_buff)->replyMbox,NULL,sizeof(void*));
+		break;
     }
-	pDebug(3,"Pager(): start\n");
+	pDebug(3,"Pager(): end\n");
     return 0;
 } /* Pager */
 
