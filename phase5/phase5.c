@@ -19,7 +19,7 @@
 #include <string.h>
 #include <stdio.h>
 
-int     debugVal = 3; // 0 == off to 3 == most debug info
+int     debugVal = 0; // 0 == off to 3 == most debug info
 
 /*****************************************************
 *             Globals
@@ -41,6 +41,7 @@ FaultMsg FaultTable[MAXPROC];
 DiskStat Disk;
 int fault_mbox;
 int VMInitialized = 0;
+int Pagers[MAXPAGERS] = { -1, -1, -1, -1};
 
 
 /*****************************************************
@@ -56,6 +57,7 @@ static int Pager(char *buf);
 void putUserMode();
 int check_kernel_mode(char *procName);
 void pMem(void* buff,int len);
+void PrintStats(void);
 
 /*
  *----------------------------------------------------------------------
@@ -265,8 +267,11 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
             USLOSS_Console(" <- vmInitReal(): Can't create pager driver %d\n", i);
             USLOSS_Halt(1);
         }
+		Pagers[i] = pid;
     }
-	dumpProcesses();
+	
+	if(debugVal>2)dumpProcesses();
+	
    /*
     * Zero out, then initialize, the vmStats structure
     */
@@ -364,6 +369,8 @@ static int Pager(char *buf){
     while(1) {
 		pDebug(3," <- Pager(): Before Block awaiting fault...\n");
 		MboxReceive(fault_mbox,recv_buff,sizeof(FaultMsg));
+		if (isZapped())
+			break; 
 		FaultMsg *fm = ((FaultMsg*)recv_buff);
 		tempProc = &ProcTable5[fm->pid%MAXPROC];
 		pDebug(1, " <- Pager(): Fault Received... @mem[%p], pid[%d.%d], offset_arrg[%d.%d], reply_mboxID[%d.%d] pager_buf[%s] \n",fm,fm->pid,FaultTable[fm->pid%MAXPROC].pid,fm->addr,FaultTable[fm->pid%MAXPROC].addr,fm->replyMbox, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
@@ -426,9 +433,11 @@ static int Pager(char *buf){
  */
 
 void vmDestroy(USLOSS_Sysargs *args){
-   pDebug(3," <- vmDestroy(): start\n");
+   pDebug(1," <- vmDestroy(): start\n");
    CheckMode();
-   pDebug(3," <- vmDestroy(): end\n");
+   vmDestroyReal();
+   args->arg1 = 0; // Spec makes no mention, however, syscall returnVal is set to arg1.
+   pDebug(1," <- vmDestroy(): end\n");
    putUserMode();
 } /* vmDestroy */
 
@@ -453,22 +462,45 @@ void vmDestroy(USLOSS_Sysargs *args){
  */
 void vmDestroyReal(void){
    int status = -1;
-   pDebug(3," <- vmDestroyReal(): start\n");
+   pDebug(1," <- vmDestroyReal(): start\n");
    CheckMode();
    status = USLOSS_MmuDone();
    status=status; //Stop warnings
+   
+   if(VMInitialized != 1)
+	   return;
    /*
     * Kill the pagers here.
     */
+	// Wake up pager all pagers and zap
+	for (i = 0; i < MAXPAGERS; i++) {
+		pDebug(1," <- vmDestroyReal(): zapping pager[%d] pid[%d]...\n",i,Pagers[i]);
+        if (Pagers[i] == -1)
+            break;
+        MboxSend(fault_mbox, NULL, 0); 
+		
+        zap(Pagers[i]);
+		join(&status);
+    }
+
+    // release fault mailboxes
+    for (i = 0; i < MAXPROC; i++) {
+		pDebug(1," <- vmDestroyReal(): releasing Fault Reply Mailboxes[%d]...\n",i);
+        MboxRelease(FaultTable[i].replyMbox);
+    }
+
+	pDebug(1," <- vmDestroyReal(): releasing Fault Mailbox[%d]...\n",fault_mbox);
+    MboxRelease(fault_mbox);
+	
    /* 
     * Print vm statistics.
     */
-   USLOSS_Console("vmStats:\n");
-   USLOSS_Console("pages: %d\n", vmStats.pages);
-   USLOSS_Console("frames: %d\n", vmStats.frames);
-   USLOSS_Console("blocks: %d\n", vmStats.blocks);
+   PrintStats();
+   
+   VMInitialized = 0;
+   vmRegion = NULL;
    /* and so on... */
-   pDebug(3," <- vmDestroyReal(): end\n");
+   pDebug(1," <- vmDestroyReal(): end\n");
 } /* vmDestroyReal */
 
 
