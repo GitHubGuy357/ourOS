@@ -38,6 +38,7 @@ int i;
 Process ProcTable5[MAXPROC];
 FTE *FrameTable; // Pointer as we do not know the amount of frames ahead of time. This is why we finally use malloc!
 FaultMsg FaultTable[MAXPROC];
+DiskStat Disk;
 int fault_mbox;
 int VMInitialized = 0;
 
@@ -45,12 +46,16 @@ int VMInitialized = 0;
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
+void dp5();
 void FaultHandler(int type, void * offset);
 void vmInit(USLOSS_Sysargs *args);
 void vmDestroy(USLOSS_Sysargs *args);
 extern  int  start5(char * name); // Had to add for Dr. Homers testcases to be forked in Phase5 code, obviously...
 int pDebug(int level, char *fmt, ...);
 static int Pager(char *buf);
+void putUserMode();
+int check_kernel_mode(char *procName);
+void pMem(void* buff,int len);
 
 /*
  *----------------------------------------------------------------------
@@ -80,18 +85,19 @@ int start4(char *arg) {
     systemCallVec[SYS_MBOXRECEIVE]     = mbox_receive;
     systemCallVec[SYS_MBOXCONDSEND]    = mbox_condsend;
     systemCallVec[SYS_MBOXCONDRECEIVE] = mbox_condreceive;
-
-    /* user-process access to VM functions */
-    systemCallVec[SYS_VMINIT]    = vmInit;
-    systemCallVec[SYS_VMDESTROY] = vmDestroy; 
+    systemCallVec[SYS_VMINIT]          = vmInit;
+    systemCallVec[SYS_VMDESTROY]       = vmDestroy; 
 	
-	pDebug(3,"start4(): Before spawn testcases start5\n");
+	
+	DiskSize(1, &Disk.sectSize, &Disk.numSects, &Disk.numTracks);
+		
+	pDebug(3," <- start4(): Before spawn testcases start5\n");
     result = Spawn("Start5", start5, NULL, 8*USLOSS_MIN_STACK, 2, &pid);
     if (result != 0) {
         USLOSS_Console("start4(): Error spawning start5\n");
         Terminate(1);
     }
-	pDebug(3,"start4(): Before wait\n");
+	pDebug(3," <- start4(): Before wait\n");
     result = Wait(&pid, &status);
     if (result != 0) {
         USLOSS_Console("start4(): Error waiting for start5\n");
@@ -133,10 +139,11 @@ int start4(char *arg) {
  *----------------------------------------------------------------------
  */
 void vmInit(USLOSS_Sysargs *args){
-	pDebug(3,"vmInit(): start\n");
+	pDebug(3," <- vmInit(): start\n");
     CheckMode();
 	void* returnVal = vmInitReal((long)args->arg1,(long)args->arg2,(long)args->arg3,(long)args->arg4);
 	args->arg1 = returnVal;
+	vmRegion = returnVal;
 	
 	// If return val is < 0 MMU has been initialized or illegal values were given. Else return 0 for success.
 	if(returnVal < 0)
@@ -144,7 +151,8 @@ void vmInit(USLOSS_Sysargs *args){
 	else
 		args->arg4 = (void*)(long)0;
 	
-	pDebug(3,"vmInit(): end\n");
+	pDebug(3," <- vmInit(): end\n");
+	putUserMode();
 } /* vmInit */
 
 /*
@@ -177,7 +185,7 @@ void vmInit(USLOSS_Sysargs *args){
  *----------------------------------------------------------------------
  */
 void *vmInitReal(int mappings, int pages, int frames, int pagers){
-   pDebug(3,"vmInitReal(): start\n");
+   pDebug(3," <- vmInitReal(): start\n");
    int status;
    int dummy;
    int pid;
@@ -196,7 +204,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
    // Initialize MMU Unit
    status = USLOSS_MmuInit(mappings, pages, frames, USLOSS_MMU_MODE_TLB);
    if (status != USLOSS_MMU_OK) {
-	  USLOSS_Console("vmInitReal: couldn't initialize MMU, status %d\n", status);
+	  USLOSS_Console(" <- vmInitReal: couldn't initialize MMU, status %d\n", status);
 	  abort();
    }
    
@@ -206,18 +214,19 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
    /*
 	* Initialize page tables.
     */
-	status = USLOSS_MmuInit(mappings,pages,frames,USLOSS_MMU_MODE_PAGETABLE);
+	//status = USLOSS_MmuInit(mappings,pages,frames,USLOSS_MMU_MODE_PAGETABLE);
 
    /* 
     * Create the fault mailbox.
     */
-	fault_mbox = MboxCreate(pagers,sizeof(void*));
+	fault_mbox = MboxCreate(pagers,MAX_MESSAGE);
 	
 	// Create All 50 possible processes
     for (i=0; i<MAXPROC; i++){
 	    ProcTable5[i].numPages = pages;
 		ProcTable5[i].pageTable =  NULL;        
 		ProcTable5[i].privateMBox = MboxCreate(0,0);
+		ProcTable5[i].pid = i;
 		FaultTable[i].replyMbox = -1;
     }
 	
@@ -225,15 +234,26 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 	FrameTable = malloc(sizeof(FTE)*frames);
 	
 	// Initialize each frame requested
-	FTE *temp = FrameTable;
 	for (i=0;i<frames;i++){
-		temp->state = FRAME_UNUSED;
-		temp->frame = i;
-		temp->page = -1;
-		temp->procPID = -1;
-		temp->next = &FrameTable[i+1];
+		FrameTable[i].state = F_UNUSED;
+		FrameTable[i].frame = i;
+		FrameTable[i].page = -1;
+		FrameTable[i].procPID = -1;
+		//temp->next = &FrameTable[i+1];
 	}
 
+	// Get Disk info, and set each block to D_UNUSED
+	Disk.blockCount = (Disk.sectSize * Disk.numSects * Disk.numTracks) / USLOSS_MmuPageSize();
+	Disk.blockStatus = malloc(Disk.blockCount * sizeof(int));
+	Disk.blocksInTrack = Disk.numTracks / Disk.blockCount;
+	Disk.blocksInSector = USLOSS_MmuPageSize() / Disk.numSects;
+	for(i=0;i<Disk.blockCount;i++)
+		Disk.blockStatus[i] = D_UNUSED;
+	
+	// Update vmStats
+	vmStats.diskBlocks = Disk.blockCount;
+    vmStats.freeDiskBlocks = Disk.blockCount;
+   
    /*
     * Fork the pagers.
     */
@@ -242,26 +262,152 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 		sprintf(name, "Pager %d", i);
         pid = fork1(name, Pager, buf, USLOSS_MIN_STACK*2, PAGER_PRIORITY);
         if (pid < 0) {
-            USLOSS_Console("vmInitReal(): Can't create pager driver %d\n", i);
+            USLOSS_Console(" <- vmInitReal(): Can't create pager driver %d\n", i);
             USLOSS_Halt(1);
         }
     }
+	dumpProcesses();
    /*
     * Zero out, then initialize, the vmStats structure
     */
    memset((char *) &vmStats, 0, sizeof(VmStats));
    vmStats.pages = pages;
    vmStats.frames = frames;
+   vmStats.new = 0;
+   
    /*
     * Initialize other vmStats fields.
     */
-   pDebug(3,"vmInitReal(): end\n");
+   pDebug(3," <- vmInitReal(): end\n");
    
    // Bookeeping, VM Region has been created!
    VMInitialized = 1;
-   
+     
    return USLOSS_MmuRegion(&dummy);
 } /* vmInitReal */
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * FaultHandler
+ *
+ * Handles an MMU interrupt. Simply stores information about the
+ * fault in a queue, wakes a waiting pager, and blocks until
+ * the fault has been handled.
+ *
+ * Results:
+ * None.
+ *
+ * Side effects:
+ * The current process is blocked until the fault is handled.
+ *
+ *----------------------------------------------------------------------
+ */
+//static void FaultHandler(int type /* MMU_INT */, int arg  /* Offset within VM region */){
+void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region */){
+   pDebug(3," <- FaultHandler(): start\n");
+   int cause;
+
+   assert(type == USLOSS_MMU_INT);
+   cause = USLOSS_MmuGetCause();
+   assert(cause == USLOSS_MMU_FAULT);
+   vmStats.faults++;
+   
+   /*
+    * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
+    * reply.
+    */
+	FaultTable[getpid()%MAXPROC].pid = getpid();
+	FaultTable[getpid()%MAXPROC].addr = arg;
+	if(FaultTable[getpid()%MAXPROC].replyMbox == -1)
+		FaultTable[getpid()%MAXPROC].replyMbox = MboxCreate(0,MAX_MESSAGE);
+
+	pDebug(1," <- FaultHandler(): FaultTable @mem[%p] id=%d, replyMbox=%d offset[%p]\n",&FaultTable[getpid()%MAXPROC], FaultTable[getpid()%MAXPROC].pid,FaultTable[getpid()%MAXPROC].replyMbox, arg);
+
+	// Send fault object to Pager
+	MboxSend(fault_mbox,&FaultTable[getpid()%MAXPROC],sizeof(FaultMsg));
+	
+	// Block waiting for fault to be resolved
+	pDebug(1," <- FaultHandler(): Before Recv on FaultTable replyMbox\n");
+	MboxReceive(FaultTable[getpid()%MAXPROC].replyMbox,NULL,0);
+	pDebug(3," <- FaultHandler(): end\n");
+} /* FaultHandler */
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * Pager 
+ *
+ * Kernel process that handles page faults and does page replacement.
+ *
+ * Results:
+ * None.
+ *
+ * Side effects:
+ * None.
+ * p ((FaultMsg*)recv_buff).pid
+ * p ((FaultMsg*)test).pid
+ *----------------------------------------------------------------------
+ */
+static int Pager(char *buf){
+	pDebug(3," <- Pager(): start\n");
+	
+	// Pager variables
+	void *recv_buff[MAX_MESSAGE];
+	procPtr tempProc;
+	PTE *pagePtr = NULL;
+	int map_result;
+
+	
+	// Loop until
+    while(1) {
+		pDebug(3," <- Pager(): Before Block awaiting fault...\n");
+		MboxReceive(fault_mbox,recv_buff,sizeof(FaultMsg));
+		FaultMsg *fm = ((FaultMsg*)recv_buff);
+		tempProc = &ProcTable5[fm->pid%MAXPROC];
+		pDebug(1, " <- Pager(): Fault Received... @mem[%p], pid[%d.%d], offset_arrg[%d.%d], reply_mboxID[%d.%d] pager_buf[%s] \n",fm,fm->pid,FaultTable[fm->pid%MAXPROC].pid,fm->addr,FaultTable[fm->pid%MAXPROC].addr,fm->replyMbox, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
+		
+	    /* Wait for fault to occur (receive from mailbox) */
+        /* Look for free frame */
+        /* If there isn't one then use clock algorithm to */
+        /* replace a page (perhaps write to disk) */
+        /* Load page into frame from disk, if necessary */
+        /* Unblock waiting (faulting) process */
+		
+		// Set page to requested page, dont forget to check if INUSE
+		pagePtr = &tempProc->pageTable[(long)(void*)fm->addr / USLOSS_MmuPageSize()];
+		
+		// Find Frame
+		pDebug(3," <- Pager(): Searching for frame...");
+		for (i=0;i<tempProc->numPages;i++){
+			if(FrameTable[i].state == F_UNUSED){
+				vmStats.new++;
+				pagePtr->state = INMEM;
+				pagePtr->frame = FrameTable[i].frame;
+				FrameTable[i].state = F_INUSE;
+				FrameTable[i].page = (long)fm->addr;
+				FrameTable[i].frame = i;
+				pDebug(3,"found @ %d.\n",pagePtr->frame);
+				        // map page 0 to frame so we can write to it later
+				map_result = USLOSS_MmuMap(TAG, 0, FrameTable[i].frame, USLOSS_MMU_PROT_RW);
+				map_result = map_result;
+				pDebug(1," <- Pager(): calling MmuMap with (tag=[%d],pagePtr->page=[%d],FrameTable[i].frame=[%d], access=[%d])\n",(int)TAG,0,FrameTable[i].frame,USLOSS_MMU_PROT_RW);
+				memset(vmRegion, 0, USLOSS_MmuPageSize());
+			 
+			    // Un-map pager
+				//USLOSS_MmuSetAccess(FrameTable[i].frame, 0); // set page as clean
+				//USLOSS_MmuUnmap(TAG, 0); // unmap page
+				break;
+			}
+		}
+
+		// Page fault handled, wake up faulting process
+		MboxSend(fm->replyMbox,NULL,0);
+    }
+	pDebug(3," <- Pager(): end\n");
+    return 0;
+} /* Pager */
 
 /*
  *----------------------------------------------------------------------
@@ -280,9 +426,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
  */
 
 void vmDestroy(USLOSS_Sysargs *args){
-   pDebug(3,"vmDestroy(): start\n");
+   pDebug(3," <- vmDestroy(): start\n");
    CheckMode();
-   pDebug(3,"vmDestroy(): end\n");
+   pDebug(3," <- vmDestroy(): end\n");
+   putUserMode();
 } /* vmDestroy */
 
 
@@ -306,7 +453,7 @@ void vmDestroy(USLOSS_Sysargs *args){
  */
 void vmDestroyReal(void){
    int status = -1;
-   pDebug(3,"vmDestroyReal(): start\n");
+   pDebug(3," <- vmDestroyReal(): start\n");
    CheckMode();
    status = USLOSS_MmuDone();
    status=status; //Stop warnings
@@ -321,7 +468,7 @@ void vmDestroyReal(void){
    USLOSS_Console("frames: %d\n", vmStats.frames);
    USLOSS_Console("blocks: %d\n", vmStats.blocks);
    /* and so on... */
-   pDebug(3,"vmDestroyReal(): end\n");
+   pDebug(3," <- vmDestroyReal(): end\n");
 } /* vmDestroyReal */
 
 
@@ -356,96 +503,20 @@ void PrintStats(void){
      USLOSS_Console("replaced:       %d\n", vmStats.replaced);
 } /* PrintStats */
 
-/*
- *----------------------------------------------------------------------
- *
- * FaultHandler
- *
- * Handles an MMU interrupt. Simply stores information about the
- * fault in a queue, wakes a waiting pager, and blocks until
- * the fault has been handled.
- *
- * Results:
- * None.
- *
- * Side effects:
- * The current process is blocked until the fault is handled.
- *
- *----------------------------------------------------------------------
- */
-//static void FaultHandler(int type /* MMU_INT */, int arg  /* Offset within VM region */){
-void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region */){
-   pDebug(3,"FaultHandler(): start\n");
-   int cause;
-
-   assert(type == USLOSS_MMU_INT);
-   cause = USLOSS_MmuGetCause();
-   assert(cause == USLOSS_MMU_FAULT);
-   vmStats.faults++;
-   /*
-    * Fill in faults[pid % MAXPROC], send it to the pagers, and wait for the
-    * reply.
-    */
-	FaultTable[getpid()%MAXPROC].pid = getpid();
-	FaultTable[getpid()%MAXPROC].addr = arg;
-	pDebug(1,"FaultHandler(): FaultTable[%d] addr[%p] mBox[%d]\n",FaultTable[getpid()%MAXPROC].pid,FaultTable[getpid()%MAXPROC].addr,FaultTable[getpid()%MAXPROC].replyMbox );
-	if(FaultTable[getpid()%MAXPROC].replyMbox == -1)
-		FaultTable[getpid()%MAXPROC].replyMbox = MboxCreate(0,0);
-
-	pDebug(1,"FaultHandler(): Before send Fault @ [%p] to mbox[%d] msg_size[%d]\n",&FaultTable[getpid()%MAXPROC],fault_mbox,sizeof(void*));
-	MboxSend(fault_mbox,&FaultTable[getpid()%MAXPROC],sizeof(void*));
-	
-	pDebug(1,"FaultHandler(): Before Recv on FaultTable replyMbox\n");
-	MboxReceive(FaultTable[getpid()%MAXPROC].replyMbox,&FaultTable[getpid()%MAXPROC],sizeof(void*));
-	pDebug(3,"FaultHandler(): end\n");
-} /* FaultHandler */
-
-
-/*
- *----------------------------------------------------------------------
- *
- * Pager 
- *
- * Kernel process that handles page faults and does page replacement.
- *
- * Results:
- * None.
- *
- * Side effects:
- * None.
- *
- *----------------------------------------------------------------------
- */
-static int Pager(char *buf){
-	pDebug(3,"Pager(): start\n");
-	void* recv_buff;
-    while(1) {
-		MboxReceive(fault_mbox,&recv_buff,sizeof(void*));
-		pDebug(3,"Pager(): start\n");
-		pDebug(1, "Pager(): Faulting...recv_buff = [%p]\n",recv_buff);
-		FaultMsg *fm = ((FaultMsg*)recv_buff);
-		pDebug(1,"Pager(); FaultTable addr[%p]\n",fm);
-        /* Wait for fault to occur (receive from mailbox) */
-        /* Look for free frame */
-        /* If there isn't one then use clock algorithm to
-         * replace a page (perhaps write to disk) */
-        /* Load page into frame from disk, if necessary */
-        /* Unblock waiting (faulting) process */
-		
-		//Page fault handled, wake up faulting process
-		//MboxSend(((FaultMsg*)recv_buff)->replyMbox,NULL,sizeof(void*));
-		break;
-    }
-	pDebug(3,"Pager(): end\n");
-    return 0;
-} /* Pager */
-
-
 /*************************************************************************
 *
 *                           UTILITIES
 *
 *************************************************************************/
+
+/*****************************************************************************
+ *     putUserMode - puts the OS into usermode with the appropriate call to 
+ *		psrSet
+ *****************************************************************************/
+void putUserMode(){
+	int result = USLOSS_PsrSet(USLOSS_PsrGet() & ~USLOSS_PSR_CURRENT_MODE);
+	pDebug(3," <- putUserMode(): Result = %d\n",result);
+}
 
 /*****************************************************************************
  *     pDebug - Outputs a printf-style formatted string to stdout
@@ -457,3 +528,38 @@ int pDebug(int level, char *fmt, ...) {
         USLOSS_VConsole(fmt,args);
 	 return 1;
 } /* pDebug */
+
+/*************************************************************************
+*   check_kernel_mode - Checks if the PsrBit is set to kernal mode
+*   	when called by process, if not halts.
+*************************************************************************/
+int check_kernel_mode(char *procName){
+    if((USLOSS_PSR_CURRENT_MODE & USLOSS_PsrGet()) == 0 ) {
+        USLOSS_Console("Process [%s] pid[%d] to call a function in user mode...halting.\n",procName, getpid());
+        USLOSS_Halt(1);
+        return 0;
+    }else
+        return 1;
+} /* check_kernel_mode */
+
+void pMem(void* buff,int len){
+	for (int i = 0; i < len; i++)
+		printf("%02x", ((unsigned char *) buff) [i]);
+}
+
+/*****************************************************************************
+ *     dp5 - Used to output a formatted version of the process table to the 
+ *		     usloss console
+ *****************************************************************************/
+void dp5(){
+    USLOSS_Console("\n--------------PROCESS TABLE--------------\n");
+    USLOSS_Console(" PID  numPages  pageTable    privateMbox\n");
+    USLOSS_Console("-----------------------------------------\n");
+
+	for( i= 0; i< MAXPROC;i++){
+		if(ProcTable5[i].pid != -1){ // Need to make legit determination for printing process
+			USLOSS_Console("%-1s[%-2d] %s[%-2d] %-5s[%10p] %-0s[%-2d]\n","",ProcTable5[i].pid,"",ProcTable5[i].numPages,"",ProcTable5[i].pageTable,"",ProcTable5[i].privateMBox);
+		}	  
+	}
+    USLOSS_Console("-------------------------------------------\n");    
+}

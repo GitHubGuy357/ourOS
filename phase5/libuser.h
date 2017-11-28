@@ -28,7 +28,7 @@ extern int  DiskSize(int unit, int *sector, int *track, int *disk);
 extern int  TermRead(char *buff, int bsize, int unit_id, int *nread);
 extern int  TermWrite(char *buff, int bsize, int unit_id, int *nwrite);
 
-// Phase 5 - Custom by Dr. Homer, we were not required to implement these in our phase4.c_str
+// Phase 4 -  Custom by Dr. Homer, we were not required to implement these in our phase4.c_str
 extern void mbox_create(USLOSS_Sysargs *args_ptr);
 extern void mbox_release(USLOSS_Sysargs *args_ptr);
 extern void mbox_send(USLOSS_Sysargs *args_ptr);
@@ -36,10 +36,16 @@ extern void mbox_receive(USLOSS_Sysargs *args_ptr);
 extern void mbox_condsend(USLOSS_Sysargs *args_ptr);
 extern void mbox_condreceive(USLOSS_Sysargs *args_ptr);
 
-// Phase 5 - In phase5.c
-//static void FaultHandler(int type, void * offset);
-//static void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
-//static void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
+
+// Phase 5 - Syscalls for Dr. Homers implemented functions in HIS phase4.c
+int Mbox_Create(int numslots, int slotsize, int *mboxID);
+int Mbox_Release(int mboxID);
+int Mbox_Send(int mboxID, void *msgPtr, int msgSize);
+int Mbox_Receive(int mboxID, void *msgPtr, int msgSize);
+int Mbox_CondSend(int mboxID, void *msgPtr, int msgSize);
+int Mbox_CondReceive(int mboxID, void *msgPtr, int msgSize);
+
+// Phase 5 - Ours
 void FaultHandler(int type, void * offset);
 void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
 void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
@@ -47,5 +53,8 @@ int VmInit(int mappings, int pages, int frames, int pagers, void **region);
 void *vmInitReal(int mappings, int pages, int frames, int pagers);
 void vmDestroyReal(void);
 int VmDestroy(void);
+//static void FaultHandler(int type, void * offset);
+//static void vmInit(USLOSS_Sysargs *USLOSS_SysargsPtr);
+//static void vmDestroy(USLOSS_Sysargs *USLOSS_SysargsPtr);
 
 #endif
