@@ -58,7 +58,7 @@ void p1_switch(int old, int new){
 	
 	pDebug(1," <- p1_switch(): VM is initialized, switching from old[%d] new[%d]\n",old,new);
 
-	if(vmRegion >0){
+	if(VMInitialized == 1){
 	
 		procPtr temp = &ProcTable5[old];
 		PTE *pagePtr = temp->pageTable;
@@ -67,8 +67,10 @@ void p1_switch(int old, int new){
 		if (pagePtr != NULL){
 			for(i=0;i< temp->numPages;i++){
 				if(pagePtr->state == INMEM || pagePtr->state == INDISK){
-					map_result = USLOSS_MmuUnmap(TAG, FrameTable[i].frame);
+				//	map_result = USLOSS_MmuUnmap(TAG, FrameTable[i].frame);
+					pDebug(1," <- p1_switch(): Unmapping page=[%d.%d.%d] from frame[%d] by old pid[%d]\n",i,temp->pageTable[i].page,FrameTable[i].page,FrameTable[i].frame,old);
 				}
+				pagePtr++;
 			}
 		}
 
@@ -82,12 +84,15 @@ void p1_switch(int old, int new){
 				if(pagePtr->state == INMEM || pagePtr->state == INDISK){
 					pagePtr->page = i;
 					map_result = USLOSS_MmuMap(TAG, pagePtr->page, temp->pageTable[i].frame, USLOSS_MMU_PROT_RW);
+					pDebug(1," <- p1_switch(): Mapping page=[%d.%d.%d] to frame[%d] by new pid[%d]\n",i,temp->pageTable[i].page,FrameTable[i].page,FrameTable[i].frame,new);
 				}
+				pagePtr++;
 			}
 		}
+		if(debugVal>2)dumpProcesses();
+			vmStats.switches++;
 	}
-	if(debugVal>2)dumpProcesses();
-	vmStats.switches++;
+
 //	PrintStats();
 	
 } /* p1_switch */
@@ -109,7 +114,8 @@ void p1_quit(int pid){
 	for(i=0;i<temp->numPages;i++){
 		map_result = USLOSS_MmuGetMap(TAG, i, &mapped_frame, &dummy);
 		if(map_result != USLOSS_MMU_ERR_NOMAP){
-			map_result = USLOSS_MmuUnmap(TAG,temp->pageTable[i].page);
+			pDebug(1," <- p1_quit(): Unmapping page=[%d] from frame[%d]\n",temp->pageTable[i].page,mapped_frame);
+			map_result = USLOSS_MmuUnmap(TAG,i); //temp->pageTable[i].page
 			
 			// clean processes pageTable
 			temp->pageTable[i].state = UNUSED;
