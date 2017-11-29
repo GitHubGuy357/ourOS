@@ -79,8 +79,8 @@ void p1_switch(int old, int new){
 		if (pagePtr != NULL){
 			for(i=0;i< temp->numPages;i++){
 				pagePtr = &temp->pageTable[i];
-				pagePtr->page = i;
 				if(pagePtr->state == INMEM || pagePtr->state == INDISK){
+					pagePtr->page = i;
 					map_result = USLOSS_MmuMap(TAG, pagePtr->page, temp->pageTable[i].frame, USLOSS_MMU_PROT_RW);
 				}
 			}

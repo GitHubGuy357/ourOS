@@ -57,7 +57,11 @@ Child(char *arg)
         before = vmStats;
         for (page = 0; page < PAGES; page++) {
             Tconsole("Child(%d): writing to page %d\n", pid, page);
+            // Write page as an int to the 1st 4 bytes of the page
             * ((int *) (vmRegion + (page * USLOSS_MmuPageSize()))) = page;
+            // Write page as a letter to the 5th byte of the page
+            * ((char *) (vmRegion + (page * USLOSS_MmuPageSize()) + 4)) =
+                'A' + page;
             value = * ((int *) (vmRegion + (page * USLOSS_MmuPageSize())));
             assert(value == page);
         }

@@ -41,6 +41,7 @@ typedef struct FTE {
     int  frame;      // Frame that stores the page (if any). -1 if none.
 	int  page;
     int  procPID;
+	int isLocked;
 	struct FTE  *next;
 } FTE;
 

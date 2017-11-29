@@ -52,6 +52,14 @@ clean:
 	outOfSwap clock.o clock core term[0-3].out
 	cp testcases/disk0.orig ./disk0
 	cp testcases/disk1.orig ./disk1
+	@if [ -d "testResults_ours" ]; then echo "Removing Folder: [testResults_ours]"; rm -rdf testResults_ours; else echo "Removing Folder: [testResults_ours] - NOT exist"; fi
 
 submit: $(CSRCS) $(HDRS) $(TURNIN)
 	tar cvzf phase5.tgz $(CSRCS) $(HDRS) Makefile
+
+all:
+	@./makeall
+	@./makediff
+
+diff:
+	@./makediff

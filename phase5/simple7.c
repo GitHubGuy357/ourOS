@@ -1,10 +1,10 @@
 /*
- * simple.c
+ * simple7.c
  *
- * One process, Writing and Reading the same data from the page with
+ * Two processes.
+ * Each writing and reading data from the one page with
  * a context switch in between.
- * No disk I/O should occur.  0 replaced pages and 1 page 
- * faults.  Check determanistic statistics.
+ * No disk I/O should occur.  0 replaced pages and 2 page faults
  */
 
 #include <usloss.h>
@@ -16,10 +16,10 @@
 
 #define Tconsole USLOSS_Console
 
-#define TEST        "simple1"
+#define TEST        "simple7"
 #define PAGES       1
-#define CHILDREN    1
-#define FRAMES      1
+#define CHILDREN    3
+#define FRAMES      2
 #define PRIORITY    5
 #define ITERATIONS  1
 #define PAGERS      1
@@ -36,7 +36,6 @@ void test_setup(int argc, char *argv[])
 void test_cleanup(int argc, char *argv[])
 {
 }
-
 
 int
 Child(char *arg)
@@ -59,10 +58,7 @@ Child(char *arg)
     else
         Tconsole("Child(%d): Wrong string read, first attempt\n", pid);
 
-    assert(vmStats.faults == 1);
-    assert(vmStats.new == 1);
-
-    SemV(sem);  // forces a context switch with start5
+    SemV(sem);
 
     if (strcmp(vmRegion, str) == 0)
         Tconsole("Child(%d): strcmp second attempt worked!\n", pid);
@@ -70,14 +66,10 @@ Child(char *arg)
         Tconsole("Child(%d): Wrong string read, second attempt\n", pid);
 
     Tconsole("Child(%d): checking various vmStats\n", pid);
-    assert(vmStats.faults == 1);
-    assert(vmStats.new == 1);
-    assert(vmStats.pageOuts == 0);
-    assert(vmStats.pageIns == 0);
 
     Tconsole("Child(%d): terminating\n\n", pid);
 
-    Terminate(117);
+    Terminate(137);
     return 0;
 } /* Child */
 
@@ -85,7 +77,7 @@ Child(char *arg)
 int
 start5(char *arg)
 {
-    int  pid;
+    int  pid[CHILDREN];
     int  status;
 
     Tconsole("start5(): Running:    %s\n", TEST);
@@ -104,15 +96,25 @@ start5(char *arg)
 
     SemCreate(0, &sem);
 
-    Spawn("Child", Child, NULL, USLOSS_MIN_STACK * 7, PRIORITY, &pid);
+    for (int i = 0; i < CHILDREN; i++)
+        Spawn("Child", Child, NULL, USLOSS_MIN_STACK * 7, PRIORITY, &pid[i]);
 
-    SemP( sem);
 
-    Wait(&pid, &status);
-    assert(status == 117);
+    // One P operation per child
+    for (int i = 0; i < CHILDREN; i++)
+        SemP( sem);
+
+    for (int i = 0; i < CHILDREN; i++) {
+        Wait(&pid[i], &status);
+        assert(status == 137);
+    }
+
+//    assert(vmStats.faults == 2);
+//    assert(vmStats.new == 2);
+//    assert(vmStats.pageOuts == 0);
+//    assert(vmStats.pageIns == 0);
 
     Tconsole("start5(): done\n");
-    //PrintStats();
     VmDestroy();
     Terminate(1);
 
