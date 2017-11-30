@@ -47,8 +47,6 @@ char mmu_results[12][40] = {"Everything hunky-dory","MMU not enabled","MMU alrea
 char page_results[4][10] = {"UNUSED","INMEM","INDISK","INBOTH"};
 char frame_results[2][10] = {"F_UNUSED","F_USED"};
 char disk_results[2][10] = {"D_UNUSED","D_USED"};
-int clockCount = 0;
-int clockMutex;
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
@@ -232,9 +230,9 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 	// Initialize each frame requested
 	for (i=0;i<frames;i++){
 		FrameTable[i].state = F_UNUSED;
-		//FrameTable[i].frame = i;
+		FrameTable[i].frame = i;
 		FrameTable[i].page = -1;
-		FrameTable[i].ownerPID = -1;
+		FrameTable[i].procPID = -1;
 		FrameTable[i].isLocked = 0;
 	}
 
@@ -248,8 +246,6 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 	for(i=0;i<Disk.blockCount;i++)
 		Disk.blockStatus[i] = D_UNUSED;
   
-	// Create clock semaphore for page replacement
-	 clockMutex = semcreateReal(1);
    /*
     * Fork the pagers.
     */
@@ -322,21 +318,32 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
     * reply.
     */
 	pid = getpid()%MAXPROC;
+	//tempProc = &ProcTable5[pid];
 	FaultTable[pid].pid = pid;
 	FaultTable[pid].addr = arg;
 	if(FaultTable[pid].replyMbox == -1)
 		FaultTable[pid].replyMbox = MboxCreate(0,MAX_MESSAGE);
 
-	pDebug(1,"\n <- FaultHandler(): Sending fault...pid=[%d] offset=[%d] to Pager\n",pid,(long)arg/USLOSS_MmuPageSize()); 
+	pDebug(1," <- FaultHandler(): Sending fault...pid=[%d] offset=[%d] to Pager\n",pid,(long)arg/USLOSS_MmuPageSize()); 
 	
 	// Send fault object to Pager
 	MboxSend(fault_mbox,&FaultTable[pid],sizeof(FaultMsg));
 	
 	// Block waiting for fault to be resolved and Receive frame from pager
-	pDebug(2," <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[%d]\n",pid);
+	pDebug(1," <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[%d]\n",pid);
 	MboxReceive(FaultTable[pid].replyMbox,&reply_buff,sizeof(int));
-	pDebug(2," <- FaultHandler(): After Recv on FaultTable replyMbox by pid[%d], reply_buff = [%d]\n",pid,reply_buff);
+	pDebug(1," <- FaultHandler(): After Recv on FaultTable replyMbox by pid[%d], reply_buff = [%d]\n",pid,reply_buff);
 	
+	// Find a page in process we can map the frame
+	//PTE *procPage = &tempProc->pageTable[(long)(void*)arg / USLOSS_MmuPageSize()];
+	
+	// Set frame to page, dont forget to check if INDISK if Pager took frame from disk
+	//if(procPage->state == INDISK)
+	//	procPage->state = INBOTH;      // See above.
+	//else
+	//	procPage->state = INMEM; 
+    //rocPage->frame = reply_buff;
+
 	// remove lock, or test 10 will fail
 	pDebug(1," <- FaultHandler(): Unlocking frame [%d]\n",reply_buff);
 	FrameTable[reply_buff].isLocked = 0;
@@ -379,25 +386,26 @@ static int Pager(char *buf){
 	void *recv_buff[MAX_MESSAGE];
 	int map_result;
 	int frame = -1;
-	int isFrameReplaced;
+	int isFrameReplaced = 0;
 	PTE *faultPage;
-	int faultOffset;
 	
-	// Loop until zapped breaks out
+	// Loop until
     while(1) {
-		/* Wait for fault to occur (receive from mailbox) */
-        /* Look for free frame */
 		pDebug(3," <- Pager(): Before Block awaiting fault...\n");
 		MboxReceive(fault_mbox,recv_buff,sizeof(FaultMsg));
 		if (isZapped())
 			break; 
 		FaultMsg *fm = ((FaultMsg*)recv_buff);
-		
+		pDebug(1, " <- Pager(): Fault Received...from pid[%d.%d] @ offset[%d.%d], reply_mboxID[%d.%d] pager_buf[%s] \n",fm->pid,FaultTable[fm->pid%MAXPROC].pid,(long)fm->addr/ USLOSS_MmuPageSize(),(long)FaultTable[fm->pid%MAXPROC].addr/ USLOSS_MmuPageSize(),fm->replyMbox, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
 		
 		// Process that has faulted
 		faultPage = &ProcTable5[(long)fm->pid].pageTable[(long)fm->addr / USLOSS_MmuPageSize()];
-		faultOffset = (long)fm->addr/ USLOSS_MmuPageSize();
-		pDebug(1, " <- Pager(): Fault Received...from pid[%d] @ offset[%d.%d], reply_mboxID[%d.%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
+		
+	    /* Wait for fault to occur (receive from mailbox) */
+        /* Look for free frame */
+
+        /* Load page into frame from disk, if necessary */
+        /* Unblock waiting (faulting) process */
 		
 		// Find Frame
 		pDebug(1," <- Pager(): Searching for frame...");
@@ -408,46 +416,38 @@ static int Pager(char *buf){
 				pDebug(2," <- Pager(): Locking frame [%d]\n",frame);
 				// Set frame to page, dont forget to check if INDISK if Pager took frame from disk
 				// Find a page in process we can map the frame
-				vmStats.new++;
 				break;
 			}
 		}
 		
+		// No Frame Found
 		/* If there isn't one then use clock algorithm to */
         /* replace a page (perhaps write to disk) */
-		// if USLOSS_MMU_REF is set the page has been referenced. 
-		// If USLOSS_MMU_DIRTY is set the page has been written. Returns a standard MMU error code.
-		isFrameReplaced = 0;
 		if(frame == vmStats.frames){
-			frame =-12;
+			frame = 0;
 			int accessBit;
 			pDebug(1," frame not found...\n");
-
+			
 			while (!isFrameReplaced){
-				sempReal(clockMutex);
-				map_result = USLOSS_MmuGetAccess(clockCount, &accessBit); // get access bits
-				if ((accessBit & USLOSS_MMU_REF) == 0) {
-					frame = clockCount;
-					pDebug(1," <- Pager(): page[%d] found, stealing from pid[%d] page[%d] \n",frame,FrameTable[frame].ownerPID,FrameTable[frame].page);
-					ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].frame = -1;
-					ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].page = -1;
-					ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].state = UNUSED; 
-					isFrameReplaced = 1;
-				}else{
-					pDebug(1," <- Pager(): Set page[%d] as dirty\n",clockCount);
-					map_result = USLOSS_MmuSetAccess(clockCount, (accessBit & USLOSS_MMU_DIRTY));
-				}
-				clockCount = (clockCount+1) % vmStats.frames;
-				semvReal(clockMutex);
+				 map_result = USLOSS_MmuGetAccess(frame, &accessBit); // get access bits
+				 if ((accessBit & USLOSS_MMU_REF) == 0) {
+					 pDebug(1," <- Pager(): page[%d] is dirty\n",frame);
+					 break;
+				 }else{
+					 pDebug(1," <- Pager(): page[%d] is not dirty\n",frame);
+					 ProcTable5[FrameTable[frame].procPID%MAXPROC].pageTable[FrameTable[frame].page].frame = -1;
+					 ProcTable5[FrameTable[frame].procPID%MAXPROC].pageTable[FrameTable[frame].page].page = -1;
+					 ProcTable5[FrameTable[frame].procPID%MAXPROC].pageTable[FrameTable[frame].page].state = UNUSED; 
+					 break;
+				 }
+				frame = frame+1 % vmStats.frames;
 			}
 		}
-		
-		/* Load page into frame from disk, if necessary */
-        /* Unblock waiting (faulting) process */
-		
+						
 		// Temp pager mapping to MMU region so we can memset to 0 OR write frame from disk to vmRegion
-		map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
-		pDebug(1," <- Pager(): Mapping pager frame tag=[%d] page=[%d] frame=[%d] access=[%d] P_result = [%s])\n",(int)TAG,0,frame,USLOSS_MMU_PROT_RW,get_r(map_result));
+		map_result = USLOSS_MmuMap(TAG, 0, FrameTable[frame].frame, USLOSS_MMU_PROT_RW);
+		map_result = map_result;
+		pDebug(1," <- Pager(): Mapping pager frame tag=[%d] page=[%d] frame=[%d] access=[%d] P_result = [%s])\n",(int)TAG,0,FrameTable[frame].frame,USLOSS_MMU_PROT_RW,get_r(map_result));
 		
 		// If the state of the page is inmem or indisk dont write over!
 		if(faultPage->state == UNUSED){
@@ -455,28 +455,34 @@ static int Pager(char *buf){
 			memset(vmRegion, 0, USLOSS_MmuPageSize()); //+ (FrameTable[frame].page*USLOSS_MmuPageSize()
 		}else
 			pDebug(1, " <- Pager(): Page state is [%d] NOT zeroing out vmRegions frame [%d]\n",faultPage->state,frame);
-			   
-		// Inform USLOSS frame is clean
-		map_result = USLOSS_MmuSetAccess(frame, 0); 
-		pDebug(1," <- Pager(): Setting frame[%d] as clean, P_result = [%s]\n",frame,get_r(map_result));
 		
+		// Update page 
+		faultPage->frame = frame;
+		// If page is in disk it is not in both, otherwise just in mem
+		if(faultPage->state == INDISK)
+			faultPage->state = INBOTH;      // See above.
+		else
+			faultPage->state = INMEM; 
+	   
 		// Temp pager mapping un-map to MMU
+		map_result = USLOSS_MmuSetAccess(FrameTable[frame].frame, 0); // set frame as clean
+		pDebug(1," <- Pager(): Setting frame[%d] as clean, P_result = [%s]\n",frame,get_r(map_result));
 		map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
 		pDebug(1," <- Pager(): Unmapping pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
-		
-		// Update page, if page is in disk, it is in mem and disk now, otherwise just in mem
-		faultPage->frame = frame;
-		faultPage->state = faultPage->state == INDISK ? INBOTH:INMEM;
+		// Page fault handled, wake up faulting process
 		
 		// Update frame
+		vmStats.new++;
 		FrameTable[frame].state = F_INUSE;
-		FrameTable[frame].page = faultOffset;
-		FrameTable[frame].ownerPID = fm->pid;
+		FrameTable[frame].page = (long)fm->addr / USLOSS_MmuPageSize();
+		FrameTable[frame].frame = frame;
+		FrameTable[frame].procPID = fm->pid;
 		
 		// Page fault handled, wake up faulting process
-		pDebug(1," <- Pager(): Fault Handled: frame[%d] state[%s] page[%d] frams.frame[%d]\n",frame,get_r(FrameTable[frame].state),FrameTable[frame].page,frame);
-		MboxSend(fm->replyMbox,&frame,sizeof(int));
+		pDebug(1," <- Pager(): Fault Handled: frame[%d] state[%s] page[%d] frams.frame[%d]\n",frame,get_r(FrameTable[frame].state),FrameTable[frame].page,FrameTable[frame].frame);
+		MboxSend(fm->replyMbox,&FrameTable[frame].frame,sizeof(int));
 	}
+	
 	pDebug(3," <- Pager(): end\n");
     return 0;
 } /* Pager */
@@ -545,7 +551,9 @@ void vmDestroyReal(void){
         if (Pagers[i] == -1)
             break;
         MboxSend(fault_mbox, NULL, 0); 
+		
         zap(Pagers[i]);
+		join(&status);
     }
 
     // release fault mailboxes
@@ -553,6 +561,7 @@ void vmDestroyReal(void){
 		pDebug(3," <- vmDestroyReal(): releasing Fault Reply Mailboxes[%d]...\n",i);
         MboxRelease(FaultTable[i].replyMbox);
     }
+
 	pDebug(3," <- vmDestroyReal(): releasing Fault Mailbox[%d]...\n",fault_mbox);
     MboxRelease(fault_mbox);
 	
@@ -560,6 +569,9 @@ void vmDestroyReal(void){
     * Print vm statistics.
     */
    PrintStats();
+   
+
+   /* and so on... */
    pDebug(2," <- vmDestroyReal(): end\n");
 } /* vmDestroyReal */
 
@@ -621,8 +633,8 @@ int pDebug(int level, char *fmt, ...) {
 } /* pDebug */
 
 /*************************************************************************
-* check_kernel_mode - Checks if the PsrBit is set to kernal mode
-*     when called by process, if not halts.
+*   check_kernel_mode - Checks if the PsrBit is set to kernal mode
+*   	when called by process, if not halts.
 *************************************************************************/
 int check_kernel_mode(char *procName){
     if((USLOSS_PSR_CURRENT_MODE & USLOSS_PsrGet()) == 0 ) {
@@ -639,8 +651,8 @@ void pMem(void* buff,int len){
 }
 
 /*****************************************************************************
- * dp5 - Used to output a formatted version of the process table to the 
- *		 usloss console
+ *     dp5 - Used to output a formatted version of the process table to the 
+ *		     usloss console
  *****************************************************************************/
 void dp5(){
     USLOSS_Console("\n--------------PROCESS TABLE--------------\n");
@@ -655,10 +667,6 @@ void dp5(){
     USLOSS_Console("-------------------------------------------\n");    
 }
 
-/*****************************************************************************
- * printPages - Used to output a formatted version of the page table to the 
- *		        usloss console
- *****************************************************************************/
 void printPages(PTE *pageTable){
 	USLOSS_Console("\n---------------------PAGE TABLE---------------------\n");
     USLOSS_Console(" page#  addr         state     frame  diskBlock\n");
@@ -669,9 +677,7 @@ void printPages(PTE *pageTable){
 	USLOSS_Console("----------------------------------------------------\n");  
 }
 	
-/*****************************************************************************
- * get_r - Used to print out specific status based on range of id
- *****************************************************************************/
+	
 char* get_r(int id){
 	if(id<=12)
 		return mmu_results[id];

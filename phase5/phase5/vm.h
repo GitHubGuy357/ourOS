@@ -38,8 +38,9 @@ typedef struct PTE {
  */
 typedef struct FTE {
     int  state;      // See above.
+    int  frame;      // Frame that stores the page (if any). -1 if none.
 	int  page;
-    int  ownerPID;
+    int  procPID;
 	int isLocked;
 	struct FTE  *next;
 } FTE;
@@ -77,6 +78,5 @@ typedef struct FaultMsg {
     int  replyMbox;  // Mailbox to send reply.
     // Add more stuff here.
 } FaultMsg;
-
 
 #define CheckMode() assert(USLOSS_PsrGet() & USLOSS_PSR_CURRENT_MODE)
