@@ -46,18 +46,19 @@ char mmu_results[12][40] = {"Everything hunky-dory","MMU not enabled","MMU alrea
 char page_results[4][10] = {"UNUSED","INMEM","INDISK","INBOTH"};
 char frame_results[2][10] = {"F_UNUSED","F_USED"};
 char disk_results[2][10] = {"D_UNUSED","D_USED"};
+char frame_lock[2][10] = {"LOCKED" , "UNLOCKED"};
 int clockHand = 0;
 int clockMutex;
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
+int pDebug(int level, char *fmt, ...);
 void dp5();
 char* get_r(int id);
 void FaultHandler(int type, void * offset);
 void vmInit(USLOSS_Sysargs *args);
 void vmDestroy(USLOSS_Sysargs *args);
 extern  int  start5(char * name); // Had to add for Dr. Homers testcases to be forked in Phase5 code, obviously...
-int pDebug(int level, char *fmt, ...);
 static int Pager(char *buf);
 void putUserMode();
 int check_kernel_mode(char *procName);
@@ -234,18 +235,18 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 		//FrameTable[i].frame = i;
 		FrameTable[i].page = -1;
 		FrameTable[i].ownerPID = -1;
-		FrameTable[i].isLocked = 0;
+		FrameTable[i].isLocked = UNLOCKED;
 	}
 
 	// Get Disk info, and set each block to D_UNUSED
 	diskSizeReal(1, &Disk.sectSize, &Disk.numSects, &Disk.numTracks);
-	pDebug(2," <- vmInitReal(): Using Disk[1], [sectSize=%d numSects=%d numTracks=%d]\n",Disk.sectSize, Disk.numSects,Disk.numTracks);
+	pDebug(1," <- vmInitReal(): Using Disk[1], [sectSize=%d numSects=%d numTracks=%d] MMU_pageSize=[%d]\n",Disk.sectSize, Disk.numSects,Disk.numTracks,USLOSS_MmuPageSize());
 	Disk.blockCount = (Disk.sectSize * Disk.numSects * Disk.numTracks) / USLOSS_MmuPageSize();
-	Disk.blockStatus = malloc(Disk.blockCount * sizeof(int));
+	Disk.blocks = malloc(Disk.blockCount * sizeof(int));
 	Disk.blocksInTrack = Disk.numTracks / Disk.blockCount;
 	Disk.blocksInSector = USLOSS_MmuPageSize() / Disk.numSects;
 	for(i=0;i<Disk.blockCount;i++)
-		Disk.blockStatus[i] = D_UNUSED;
+		Disk.blocks[i] = D_UNUSED;
   
 	// Create clock semaphore for page replacement
 	 clockMutex = semcreateReal(1);
@@ -332,14 +333,14 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
 	MboxSend(fault_mbox,&FaultTable[pid],sizeof(FaultMsg));
 	
 	// Block waiting for fault to be resolved and Receive frame from pager
-	pDebug(2," <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[%d]\n",pid);
+	pDebug(1," <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[%d]\n",pid);
 	MboxReceive(FaultTable[pid].replyMbox,&reply_buff,sizeof(int));
 	pDebug(2," <- FaultHandler(): After Recv on FaultTable replyMbox by pid[%d], reply_buff = [%d]\n",pid,reply_buff);
 	
 	// remove lock, or test 10 will fail
 	pDebug(1," <- FaultHandler(): Unlocking frame [%d]\n",reply_buff);
-	FrameTable[reply_buff].isLocked = 0;
-	
+	FrameTable[reply_buff].isLocked = UNLOCKED;
+	//FrameTable[FaultTable[pid].frameFound].isLocked = UNLOCKED;
 	pDebug(2," <- FaultHandler(): end\n");
 } /* FaultHandler */
 
@@ -393,18 +394,18 @@ static int Pager(char *buf){
 		FaultMsg *fm = ((FaultMsg*)recv_buff);
 		
 		
-		// Process that has faulted
-		faultPage = &ProcTable5[(long)fm->pid].pageTable[(long)fm->addr / USLOSS_MmuPageSize()];
-		
 		// Page that caused the fault.
 		faultOffset = (long)fm->addr/ USLOSS_MmuPageSize();
 		
-		pDebug(1, " <- Pager(): Fault Received...from pid[%d] @ offset[%d.%d], reply_mboxID[%d.%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
+		// Process page that has faulted
+		faultPage = &ProcTable5[(long)fm->pid].pageTable[faultOffset];
+		
+		pDebug(1, " <- Pager(): Fault Received...from pid[%d] offset[%d] | reply_mboxID[%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
 		
 		// Find Frame
 		pDebug(1," <- Pager(): Searching for frame...");
 		for (frame=0;frame<vmStats.frames;frame++){
-			if(FrameTable[frame].state == F_UNUSED && FrameTable[frame].isLocked == 0){
+			if(FrameTable[frame].state == F_UNUSED && FrameTable[frame].isLocked == UNLOCKED){
 				pDebug(1," frame [%d] found!\n",frame);
 				// Set frame to page, dont forget to check if INDISK if Pager took frame from disk
 				// Find a page in process we can map the frame
@@ -414,8 +415,6 @@ static int Pager(char *buf){
 		
 		/* If there isn't one then use clock algorithm to */
         /* replace a page (perhaps write to disk) */
-		// if USLOSS_MMU_REF is set the page has been referenced. 
-		// If USLOSS_MMU_DIRTY is set the page has been written. Returns a standard MMU error code.
 		isFrameReplaced = 0;
 		if(frame == vmStats.frames){
 			frame =-12;
@@ -425,50 +424,81 @@ static int Pager(char *buf){
 			while (!isFrameReplaced){
 				sempReal(clockMutex);
 				map_result = USLOSS_MmuGetAccess(clockHand, &accessBit); // get access bits
-				// if FrameTable[clockHand].isLocked == 0 then on unimplemented page.outs this never works
-				// because the other frame must still be locked...If we do not do isLocked here,
-				// Page faults are 119 on simple8 instead of the correct 80 we get.
-				if ((accessBit & USLOSS_MMU_REF) == 0 && FrameTable[clockHand].isLocked == 0) {
-					frame = clockHand;
-					pDebug(1," <- Pager(): page[%d] found, stealing from pid[%d] page[%d] \n",frame,FrameTable[frame].ownerPID,FrameTable[frame].page);
-					ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].frame = -1;
-					ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].page = -1;
-					//ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page].state = 505; 
-					isFrameReplaced = 1;
-				}else{
-					pDebug(1," <- Pager(): Set page[%d] as dirty\n",clockHand);
+				pDebug(1," <- Pager(): Searching frame [%d] state [%s] reference bit = [%d] dirty bit = [%d]\n",clockHand,get_r(FrameTable[clockHand].isLocked), accessBit & USLOSS_MMU_REF, accessBit & USLOSS_MMU_DIRTY);
+				
+				// Page is referenced, set page as unreferenced
+				if (accessBit & USLOSS_MMU_REF){ // if USLOSS_MMU_REF is set the page has been referenced. 
+				                                 // If USLOSS_MMU_DIRTY is set the page has been written
 					map_result = USLOSS_MmuSetAccess(clockHand, (accessBit & USLOSS_MMU_DIRTY));
+					pDebug(1," <- Pager(): Setting frame[%d] as unreferenced...\n",clockHand);			
+				
+				// If page is unreferenced, used it
+				}else if (FrameTable[clockHand].isLocked == UNLOCKED){
+					frame = clockHand;
+					pDebug(1," <- Pager(): frame[%d] found, stealing from pid[%d] page[%d] \n",frame,FrameTable[frame].ownerPID,FrameTable[frame].page);
+					PTE *oldProcPage = &ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page];
+					isFrameReplaced = 1;
+					
+					// If this frame is dirty, write to disk
+					if(accessBit & USLOSS_MMU_DIRTY){
+						pDebug(1," <- Pager(): page[%d] is dirty, notify previous process [%d] its frame is being written to disk...\n",FrameTable[frame].page, FrameTable[frame].ownerPID);
+						for(i=0;i<Disk.blockCount;i++){
+							if(Disk.blocks[i] == D_UNUSED){
+								Disk.blocks[i] = D_INUSE;
+								oldProcPage->diskBlock = i;
+								oldProcPage->state = INDISK;
+								char disk_buf[USLOSS_MmuPageSize()];
+								map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
+								memcpy(disk_buf,vmRegion /*+ frame*/,USLOSS_MmuPageSize());
+								map_result = USLOSS_MmuUnmap(TAG, 0);
+								diskWriteReal(1,i/2,(i%2)*USLOSS_MmuPageSize(),USLOSS_MmuPageSize(),disk_buf);
+								vmStats.pageOuts++;
+								vmStats.freeDiskBlocks--;
+								break;
+							}	
+						}
+					}
+					oldProcPage->frame = -1;
+					oldProcPage->page = -1;
+					//oldProcPage->state = 505; //TODO: What should this state me?
 				}
+				
 				clockHand = (clockHand+1) % vmStats.frames;
 				semvReal(clockMutex);
 			}
 		}
+						
 		// Lock frame ASAP, needs to be below clock algo as want to make sure another pager does not use.
-		pDebug(2," <- Pager(): Locking frame [%d]\n",frame);
-		FrameTable[frame].isLocked = 1;
-				
-		/* Load page into frame from disk, if necessary */
-        /* Unblock waiting (faulting) process */
-		
+		pDebug(1," <- Pager(): Locking frame [%d]\n",frame);
+		FrameTable[frame].isLocked = LOCKED;
+
 		// Temp pager mapping to MMU region so we can memset to 0 OR write frame from disk to vmRegion
 		map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
-		pDebug(1," <- Pager(): Mapping pager frame tag=[%d] page=[%d] frame=[%d] access=[%d] P_result = [%s])\n",(int)TAG,0,frame,USLOSS_MMU_PROT_RW,get_r(map_result));
+		pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
 		
+		/* Load page into frame from disk, if necessary */
+		if(faultPage->state == INDISK){
+			pDebug(1," <- Pager(): Frame [%d] found is in disk...copy disk page to frame.\n",frame);
+			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*USLOSS_MmuPageSize(), USLOSS_MmuPageSize(), vmRegion);
+			Disk.blocks[i] = D_UNUSED;
+			vmStats.pageIns++;
+		}
+
 		// If the state of the page is inmem or indisk dont write over!
 		if(faultPage->state == UNUSED){
-			pDebug(1, " <- Pager(): Page state is UNUSED, zeroing out vmRegions frame[%d]\n",frame);
+			pDebug(1, " <- Pager(): Page[%d] state is [%s], zeroing out vmRegions frame[%d]\n",faultOffset,get_r(faultPage->state),frame);
 			memset(vmRegion, 0, USLOSS_MmuPageSize()); //+ (FrameTable[frame].page*USLOSS_MmuPageSize()
 			vmStats.new++;
 		}else
-			pDebug(1, " <- Pager(): Page state is [%d] NOT zeroing out vmRegions frame [%d]\n",faultPage->state,frame);
-			   
-		// Inform USLOSS frame is clean
+			pDebug(1, " <- Pager(): Page[%d] state is [%s] NOT zeroing out vmRegions frame [%d]\n",faultOffset,get_r(faultPage->state),frame);
+		
+		// Inform USLOSS frame is clean and unreferenced!
 		map_result = USLOSS_MmuSetAccess(frame, 0); 
 		pDebug(1," <- Pager(): Setting frame[%d] as clean, P_result = [%s]\n",frame,get_r(map_result));
 		
 		// Temp pager mapping un-map to MMU
 		map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
-		pDebug(1," <- Pager(): Unmapping pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
+		pDebug(1," <- Pager(): Unmapping temp pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
 		
 		// Update page, if page is in disk, it is in mem and disk now, otherwise just in mem
 		faultPage->frame = frame;
@@ -479,9 +509,13 @@ static int Pager(char *buf){
 		FrameTable[frame].page = faultOffset;
 		FrameTable[frame].ownerPID = fm->pid;
 
+		pDebug(1," <- Pager(): Fault Handled for pid[%d]: frame[%d] state[%s] sending to FaultMsg replyMbox[%d]\n",fm->pid,frame,get_r(FrameTable[frame].state),fm->replyMbox);
+		
+		//PrintStats();
+		/* Unblock waiting (faulting) process */
 		// Page fault handled, wake up faulting process
-		pDebug(1," <- Pager(): Fault Handled: frame[%d] state[%s] page[%d] frams.frame[%d]\n",frame,get_r(FrameTable[frame].state),FrameTable[frame].page,frame);
 		MboxSend(fm->replyMbox,&frame,sizeof(int));
+	//	FaultTable[fm->pid].frameFound = frame;
 	}
 	pDebug(3," <- Pager(): end\n");
     return 0;
@@ -687,6 +721,8 @@ char* get_r(int id){
 		return frame_results[id-600];
 	else if (id <=701)
 		return disk_results[id-700];
+	else if (id <= 801)
+		return frame_lock[id-800];
 	else
 		return "INVALID ID";
 }

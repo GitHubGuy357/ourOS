@@ -22,6 +22,9 @@
 
 #define D_UNUSED 700
 #define D_INUSE 701
+
+#define LOCKED 800
+#define UNLOCKED 801
 /*
  * Page table entry.
  */
@@ -40,8 +43,7 @@ typedef struct FTE {
     int  state;      // See above.
 	int  page;
     int  ownerPID;
-	int isLocked;
-	struct FTE  *next;
+	int  isLocked;
 } FTE;
 
 /*
@@ -63,7 +65,7 @@ typedef struct DiskStat{
 	int numSects;
 	int sectSize;
 	int blockCount;
-	int *blockStatus;
+	int *blocks;
 	int blocksInTrack;
 	int blocksInSector;
 } DiskStat;
@@ -76,6 +78,7 @@ typedef struct FaultMsg {
     void *addr;      // Address that caused the fault.
     int  replyMbox;  // Mailbox to send reply.
     // Add more stuff here.
+	int frameFound;
 } FaultMsg;
 
 

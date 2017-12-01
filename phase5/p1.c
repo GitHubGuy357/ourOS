@@ -23,6 +23,7 @@ extern char mmu_results[12][40];
 extern char page_results[4][10];
 extern char frame_results[2][10];
 extern char disk_results[2][10];
+extern DiskStat Disk;
 
 // Prototypes
 extern void PrintStats(void);
@@ -62,7 +63,7 @@ void p1_switch(int old, int new){
 	if(VMInitialized == 0)
 		return;
 	
-	pDebug(2," <- p1_switch(): VM is initialized, switching from old[%d] new[%d]\n",old,new);
+	pDebug(1," <- p1_switch(): VM is initialized, switching from old[%d] new[%d]\n",old,new);
 
 	if(VMInitialized == 1){
 		procPtr temp = &ProcTable5[old];
@@ -73,7 +74,7 @@ void p1_switch(int old, int new){
 			for(i=0;i< temp->numPages;i++){
 				//map_result = USLOSS_MmuGetMap(TAG, i, &framePtr, &frameProtPtr); 
 				if(pagePtr->state == INMEM){  // Check if page is mapped, if so unmap it.
-					map_result = USLOSS_MmuUnmap(TAG, temp->pageTable[i].page);
+					map_result = USLOSS_MmuUnmap(TAG, i); //temp->pageTable[i].page
 					pDebug(1," <- p1_switch(): Unmapping page=[%d] from frame[%d] by old pid[%d]... S_result = [%s]\n",temp->pageTable[i].page,temp->pageTable[i].frame,old,get_r(map_result));
 				}
 				pagePtr++;
@@ -84,9 +85,10 @@ void p1_switch(int old, int new){
 		
 		// Map new process
 		if (pagePtr != NULL){
+			if(debugVal>1)printPages(temp->pageTable);
 			for(i=0;i< temp->numPages;i++){
 				pagePtr = &temp->pageTable[i];
-				if(pagePtr->state == INMEM){ // Check if page is mapped, if so map it. ??? //TODO
+				if(pagePtr->state == INMEM || pagePtr->state == INBOTH){ // Check if page is mapped, if so map it. ??? //TODO
 					pagePtr->page = i;
 					map_result = USLOSS_MmuMap(TAG, pagePtr->page, temp->pageTable[i].frame, USLOSS_MMU_PROT_RW);
 					pDebug(1," <- p1_switch(): Mapping page=[%d] to frame[%d] by new pid[%d]... S_result = [%s]\n",temp->pageTable[i].page,temp->pageTable[i].frame,new,get_r(map_result));
@@ -110,11 +112,11 @@ void p1_quit(int pid){
 	pDebug(2," <- p1_quit(): VM is %s, and pid[%d] is quiting\n",VMInitialized == 1 ? "VMInitialized": "VM NOT initialized",pid);
 	if(VMInitialized == 0 || temp->pageTable == NULL)
 		return;
-	if(debugVal>2)dumpProcesses();
+	if(debugVal>1)dumpProcesses();
 	for(i=0;i<temp->numPages;i++){
 		map_result = USLOSS_MmuGetMap(TAG, i, &mapped_frame, &dummy);
 		if(map_result != USLOSS_MMU_ERR_NOMAP){
-			pDebug(2," <- p1_quit(): Unmapping page=[%d] from frame[%d]\n",temp->pageTable[i].page,mapped_frame);
+			pDebug(1," <- p1_quit(): Unmapping page=[%d] from frame[%d]\n",i,mapped_frame);
 			map_result = USLOSS_MmuUnmap(TAG,i); //temp->pageTable[i].page
 			
 			// clean processes pageTable
@@ -122,13 +124,14 @@ void p1_quit(int pid){
 			temp->pageTable[i].page = -1;
 			temp->pageTable[i].frame = -1;
 			temp->pageTable[i].diskBlock = -1;
-			
+			if(Disk.blocks[temp->pageTable[i].diskBlock] >-1){
+				Disk.blocks[temp->pageTable[i].diskBlock] = D_UNUSED;	
+				vmStats.freeDiskBlocks++;
+			}				
 			// clean frame tables frame
 			FrameTable[mapped_frame].state = UNUSED;
-			//FrameTable[mapped_frame].frame = -1;
 			FrameTable[mapped_frame].page = -1;
 			FrameTable[mapped_frame].ownerPID = -1;
-			FrameTable[mapped_frame].next = NULL;
 			vmStats.freeFrames++;
 		}
 	}
