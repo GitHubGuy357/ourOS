@@ -66,8 +66,6 @@ typedef struct DiskStat{
 	int sectSize;
 	int blockCount;
 	int *blocks;
-	int blocksInTrack;
-	int blocksInSector;
 } DiskStat;
 /*
  * Information about page faults. This message is sent by the faulting

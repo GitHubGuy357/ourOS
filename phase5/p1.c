@@ -123,16 +123,17 @@ void p1_quit(int pid){
 			temp->pageTable[i].state = UNUSED;
 			temp->pageTable[i].page = -1;
 			temp->pageTable[i].frame = -1;
-			temp->pageTable[i].diskBlock = -1;
-			if(Disk.blocks[temp->pageTable[i].diskBlock] >-1){
-				Disk.blocks[temp->pageTable[i].diskBlock] = D_UNUSED;	
-				vmStats.freeDiskBlocks++;
-			}				
+			
 			// clean frame tables frame
 			FrameTable[mapped_frame].state = UNUSED;
 			FrameTable[mapped_frame].page = -1;
 			FrameTable[mapped_frame].ownerPID = -1;
 			vmStats.freeFrames++;
+		}
+		if(temp->pageTable[i].diskBlock > -1 && Disk.blocks[temp->pageTable[i].diskBlock] == D_INUSE){
+			pDebug(1," <- p1_quit(): Clean diskblock[%d] with status of[%s]\n",temp->pageTable[i].diskBlock,get_r(Disk.blocks[temp->pageTable[i].diskBlock]));
+			Disk.blocks[temp->pageTable[i].diskBlock] = D_UNUSED;	
+			vmStats.freeDiskBlocks++;
 		}
 	}
 	free(temp->pageTable); 

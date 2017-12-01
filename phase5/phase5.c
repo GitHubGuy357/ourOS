@@ -243,10 +243,9 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 	pDebug(1," <- vmInitReal(): Using Disk[1], [sectSize=%d numSects=%d numTracks=%d] MMU_pageSize=[%d]\n",Disk.sectSize, Disk.numSects,Disk.numTracks,USLOSS_MmuPageSize());
 	Disk.blockCount = (Disk.sectSize * Disk.numSects * Disk.numTracks) / USLOSS_MmuPageSize();
 	Disk.blocks = malloc(Disk.blockCount * sizeof(int));
-	Disk.blocksInTrack = Disk.numTracks / Disk.blockCount;
-	Disk.blocksInSector = USLOSS_MmuPageSize() / Disk.numSects;
-	for(i=0;i<Disk.blockCount;i++)
+	for(i=0;i<Disk.blockCount;i++){
 		Disk.blocks[i] = D_UNUSED;
+	}
   
 	// Create clock semaphore for page replacement
 	 clockMutex = semcreateReal(1);
@@ -392,14 +391,12 @@ static int Pager(char *buf){
 		if (isZapped())
 			break; 
 		FaultMsg *fm = ((FaultMsg*)recv_buff);
-		
-		
+
 		// Page that caused the fault.
 		faultOffset = (long)fm->addr/ USLOSS_MmuPageSize();
 		
 		// Process page that has faulted
 		faultPage = &ProcTable5[(long)fm->pid].pageTable[faultOffset];
-		
 		pDebug(1, " <- Pager(): Fault Received...from pid[%d] offset[%d] | reply_mboxID[%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
 		
 		// Find Frame
@@ -480,7 +477,8 @@ static int Pager(char *buf){
 		if(faultPage->state == INDISK){
 			pDebug(1," <- Pager(): Frame [%d] found is in disk...copy disk page to frame.\n",frame);
 			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*USLOSS_MmuPageSize(), USLOSS_MmuPageSize(), vmRegion);
-			Disk.blocks[i] = D_UNUSED;
+			Disk.blocks[faultPage->diskBlock] = D_UNUSED;
+			vmStats.freeDiskBlocks++;
 			vmStats.pageIns++;
 		}
 
