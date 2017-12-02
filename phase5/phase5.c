@@ -475,7 +475,6 @@ static int Pager(char *buf){
 								char disk_buf[USLOSS_MmuPageSize()];
 								map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 								memcpy(disk_buf,vmRegion /*+ frame*/,USLOSS_MmuPageSize());
-								map_result = USLOSS_MmuUnmap(TAG, 0);
 								pDebug(1," <- Pager(): Writing page[%d] to Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2);
 								
 								diskWriteReal(1,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2,disk_buf);
@@ -490,12 +489,7 @@ static int Pager(char *buf){
 						oldProcPage->frame = -1;
 				        oldProcPage->state = 505; //TODO: What should this state me?
 					}
-
-		
-
-					
 				}
-				
 				clockHand = (clockHand+1) % vmStats.frames;
 				semvReal(clockMutex);
 			}
@@ -513,11 +507,8 @@ static int Pager(char *buf){
 			pDebug(1," <- Pager(): Reading page[%d] from Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,faultPage->diskBlock/2,(faultPage->diskBlock%2)*Disk.numSects/2,Disk.numSects/2);
 			char disk_buf[USLOSS_MmuPageSize()];
 			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*Disk.numSects/2, Disk.numSects/2, disk_buf);
-			pDebug(2," <- Pager(): before memcpy INDISK\n");
-			pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
 			map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 			memcpy(vmRegion,disk_buf,USLOSS_MmuPageSize());
-			map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
 			Disk.blocks[faultPage->diskBlock] = D_UNUSED;
 			vmStats.freeDiskBlocks++;
 			vmStats.pageIns++;
@@ -527,12 +518,8 @@ static int Pager(char *buf){
 		// If the state of the page is inmem or indisk dont write over!
 		if(faultPage->state == UNUSED){
 			pDebug(1, " <- Pager(): Page[%d] state is [%s], zeroing out vmRegions frame[%d]\n",faultOffset,get_r(faultPage->state),frame);
-			pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
 			map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 			memset(vmRegion, 0, USLOSS_MmuPageSize()); //+ (FrameTable[frame].page*USLOSS_MmuPageSize()
-			// Temp pager mapping un-map to MMU
-			pDebug(1," <- Pager(): Unmapping temp pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
-			map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
 			vmStats.new++;
 		}else
 			pDebug(1, " <- Pager(): Page[%d] state is [%s] NOT zeroing out vmRegions frame [%d]\n",faultOffset,get_r(faultPage->state),frame);
@@ -541,9 +528,10 @@ static int Pager(char *buf){
 		map_result = USLOSS_MmuSetAccess(frame, 0); 
 		pDebug(1," <- Pager(): Setting frame[%d] as clean, P_result = [%s]\n",frame,get_r(map_result));
 		
-
-	
-		
+		// Temp pager mapping un-map to MMU
+		map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
+		pDebug(1," <- Pager(): Unmapping temp pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
+			
 		// Update page, if page is in disk, it is in mem and disk now, otherwise just in mem
 		faultPage->frame = frame;
 	//	faultPage->state = INBOTH;
