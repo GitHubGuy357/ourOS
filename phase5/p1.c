@@ -89,7 +89,7 @@ void p1_switch(int old, int new){
 			if(debugVal>1)printPages(temp->pageTable);
 			for(i=0;i< temp->numPages;i++){
 				pagePtr = &temp->pageTable[i];
-				if(pagePtr->state == INMEM || pagePtr->state == INBOTH){ // Check if page is mapped, if so map it. ??? //TODO
+				if(pagePtr->state == INMEM ){ // Check if page is mapped, if so map it. ??? //TODO
 					pagePtr->page = i;
 					map_result = USLOSS_MmuMap(TAG, pagePtr->page, temp->pageTable[i].frame, USLOSS_MMU_PROT_RW);
 					pDebug(1," <- p1_switch(): Mapping page=[%d] to frame[%d] by new pid[%d]... S_result = [%s]\n",temp->pageTable[i].page,temp->pageTable[i].frame,new,get_r(map_result));
@@ -138,5 +138,6 @@ void p1_quit(int pid){
 			vmStats.freeDiskBlocks++;
 		}
 	}
+	pDebug(1," <- p1_quit(): Process cleaned, freeing pagetable mem[%p]\n",temp->pageTable);
 	free(temp->pageTable); 
 } /* p1_quit */

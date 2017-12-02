@@ -409,12 +409,16 @@ static int Pager(char *buf){
 		
 		// Acquire frame mutex
 		sempReal(frameMutex);
+		pDebug(1, " <- Pager(): Frame mutex waking up...\n");
+		if (isZapped())
+			break; 
 		
 		// Find Frame
 		pDebug(1," <- Pager(): Searching for frame...");
 		for (frame=0;frame<vmStats.frames;frame++){
 			if(FrameTable[frame].state == F_UNUSED && FrameTable[frame].isLocked == UNLOCKED){
 				pDebug(1," frame [%d] found!\n",frame);
+				//faultPage->state = INMEM;
 				// Set frame to page, dont forget to check if INDISK if Pager took frame from disk
 				// Find a page in process we can map the frame
 				break;
@@ -446,6 +450,7 @@ static int Pager(char *buf){
 					pDebug(1," <- Pager(): frame[%d] found state=[%s], stealing from pid[%d] page[%d] \n",frame,get_r(FrameTable[frame].state),FrameTable[frame].ownerPID,FrameTable[frame].page);
 					PTE *oldProcPage = &ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page];
 					isFrameReplaced = 1;
+
 					
 					// If this frame is dirty, write to disk
 					if(accessBit & USLOSS_MMU_DIRTY){
@@ -459,18 +464,21 @@ static int Pager(char *buf){
 								map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 								memcpy(disk_buf,vmRegion /*+ frame*/,USLOSS_MmuPageSize());
 								map_result = USLOSS_MmuUnmap(TAG, 0);
-								pDebug(1," <- Pager(): Writing page[%d] to Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,i/2,(i%2)*USLOSS_MmuPageSize(),Disk.numSects/2);
+								pDebug(1," <- Pager(): Writing page[%d] to Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2);
 								
-								diskWriteReal(1,i/2,(i%2)*USLOSS_MmuPageSize(),USLOSS_MmuPageSize(),disk_buf); //Disk.numSects/2
+								diskWriteReal(1,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2,disk_buf); //Disk.numSects/2
 								vmStats.pageOuts++;
 								vmStats.freeDiskBlocks--;
 								break;
 							}	
 						}
+						
 					}
+
 					oldProcPage->frame = -1;
 					oldProcPage->page = -1;
-					//oldProcPage->state = 505; //TODO: What should this state me?
+				    //	oldProcPage->state = 505; //TODO: What should this state me?
+					
 				}
 				
 				clockHand = (clockHand+1) % vmStats.frames;
@@ -488,11 +496,16 @@ static int Pager(char *buf){
 		
 		/* Load page into frame from disk, if necessary */
 		if(faultPage->state == INDISK){
-			pDebug(1," <- Pager(): Frame [%d] found is in disk...copy disk page to frame.\n",frame);
-			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*USLOSS_MmuPageSize(), USLOSS_MmuPageSize(), vmRegion);
+			pDebug(1," <- Pager(): Page [%d] found is in disk...copy disk page to frame.\n",frame);
+			pDebug(1," <- Pager(): Reading page[%d] from Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,faultPage->diskBlock/2,(faultPage->diskBlock%2)*Disk.numSects/2,Disk.numSects/2);
+			char disk_buf[USLOSS_MmuPageSize()];
+			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*Disk.numSects/2, Disk.numSects/2, disk_buf);
+			memcpy(vmRegion,disk_buf,USLOSS_MmuPageSize());
+			
 			Disk.blocks[faultPage->diskBlock] = D_UNUSED;
 			vmStats.freeDiskBlocks++;
 			vmStats.pageIns++;
+			faultPage->state = INBOTH;
 		}
 
 		// If the state of the page is inmem or indisk dont write over!
@@ -513,6 +526,7 @@ static int Pager(char *buf){
 		
 		// Update page, if page is in disk, it is in mem and disk now, otherwise just in mem
 		faultPage->frame = frame;
+	//	faultPage->state = INBOTH;
 		faultPage->state = faultPage->state == INDISK ? INBOTH:INMEM;
 		
 		// Update frame
