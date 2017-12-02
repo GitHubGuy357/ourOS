@@ -65,6 +65,8 @@ Child(char *arg)
             value = * ((int *) (vmRegion + (page * USLOSS_MmuPageSize())));
             assert(value == page);
         }
+		PrintStats();
+		Tconsole("before.faults= % d PAGES = %d\n",before.faults,PAGES);
         assert(vmStats.faults - before.faults == PAGES);
     }
     assert(vmStats.faults == PAGES * ITERATIONS);

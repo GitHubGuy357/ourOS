@@ -1,20 +1,21 @@
-start5(): Running:    simple5
+start5(): Running:    simple7
 start5(): Pagers:     1
-          Mappings:   2
-          Pages:      2
-          Frames:     1
-          Children:   1
-          Iterations: 2
+          Mappings:   1
+          Pages:      1
+          Frames:     2
+          Children:   3
+          Iterations: 1
           Priority:   5
  <- vmInitReal(): Using Disk[1], [sectSize=512 numSects=16 numTracks=32] MMU_pageSize=[4096]
+start5(): after call to VmInit, status = 0
+
  <- p1_switch(): VM is initialized, switching from old[9] new[10]
  <- p1_switch(): VM is initialized, switching from old[10] new[8]
  <- p1_switch(): VM is initialized, switching from old[8] new[11]
 
 Child(11): starting
-
-Child(11): iteration 0
-Child(11) writing to page 0
+Child(11): str = This is the first page
+Child(11): strlen(str) = 22
 
  <- FaultHandler(): Sending fault...pid=[11] offset=[0] to Pager
  <- p1_switch(): VM is initialized, switching from old[11] new[10]
@@ -26,129 +27,195 @@ Child(11) writing to page 0
  <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
  <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
  <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
+ <- p1_switch(): VM is initialized, switching from old[10] new[12]
+
+Child(12): starting
+Child(12): str = This is the first page
+Child(12): strlen(str) = 22
+
+ <- FaultHandler(): Sending fault...pid=[12] offset=[0] to Pager
+ <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[12]
+ <- p1_switch(): VM is initialized, switching from old[12] new[13]
+
+Child(13): starting
+Child(13): str = This is the first page
+Child(13): strlen(str) = 22
+
+ <- FaultHandler(): Sending fault...pid=[13] offset=[0] to Pager
+ <- p1_switch(): VM is initialized, switching from old[13] new[11]
  <- p1_switch(): Mapping page=[0] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
  <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
  <- p1_switch(): VM is initialized, switching from old[11] new[10]
  <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
+ <- Pager(): Fault Received...from pid[12] offset[0] | reply_mboxID[861] pager_buf[0] 
+ <- Pager(): Searching for frame... frame [1] found!
+ <- Pager(): Locking frame [1]
+ <- Pager(): Mapping temp pager frame=[1] access=[3] P_result = [Everything hunky-dory])
+ <- Pager(): Page[0] state is [UNUSED], zeroing out vmRegions frame[1]
+ <- Pager(): Setting frame[1] as clean, P_result = [Everything hunky-dory]
+ <- Pager(): Unmapping temp pager frame[1], p_result = [Everything hunky-dory]
+ <- Pager(): Fault Handled for pid[12]: frame[1] state[F_USED] sending to FaultMsg replyMbox[861]
+ <- Pager(): Fault Received...from pid[13] offset[0] | reply_mboxID[862] pager_buf[0] 
  <- p1_switch(): VM is initialized, switching from old[10] new[11]
  <- p1_switch(): Mapping page=[0] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
  <- FaultHandler(): Unlocking frame [0]
-Child(11) writing to page 1
-
- <- FaultHandler(): Sending fault...pid=[11] offset=[1] to Pager
  <- p1_switch(): VM is initialized, switching from old[11] new[10]
  <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- Pager(): Fault Received...from pid[11] offset[1] | reply_mboxID[860] pager_buf[0] 
- <- Pager(): Searching for frame... frame not found...
- <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [1] dirty bit = [2]
- <- Pager(): Setting frame[0] as unreferenced...
- <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [2]
- <- Pager(): frame[0] found, stealing from pid[11] page[0] 
- <- Pager(): page[0] is dirty, notify previous process [11] its frame is being written to disk...
- <- Pager(): Locking frame [0]
- <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
- <- Pager(): Page[1] state is [UNUSED], zeroing out vmRegions frame[0]
- <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
- <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
- <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[1] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
- <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): Unmapping page=[1] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[1] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
- <- FaultHandler(): Unlocking frame [0]
-
-Child(11): iteration 1
-Child(11) writing to page 0
-
- <- FaultHandler(): Sending fault...pid=[11] offset=[0] to Pager
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): Unmapping page=[1] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- Pager(): Fault Received...from pid[11] offset[0] | reply_mboxID[860] pager_buf[0] 
- <- Pager(): Searching for frame... frame not found...
- <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [1] dirty bit = [2]
- <- Pager(): Setting frame[0] as unreferenced...
- <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [2]
- <- Pager(): frame[0] found, stealing from pid[11] page[1] 
- <- Pager(): page[1] is dirty, notify previous process [11] its frame is being written to disk...
- <- Pager(): Locking frame [0]
- <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
- <- Pager(): Frame [0] found is in disk...copy disk page to frame.
- <- Pager(): Page[0] state is [INDISK] NOT zeroing out vmRegions frame [0]
- <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
- <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
- <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- FaultHandler(): Unlocking frame [0]
-
- <- FaultHandler(): Sending fault...pid=[11] offset=[0] to Pager
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- Pager(): Fault Received...from pid[11] offset[0] | reply_mboxID[860] pager_buf[0] 
  <- Pager(): Searching for frame... frame not found...
  <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [0]
  <- Pager(): frame[0] found, stealing from pid[11] page[0] 
  <- Pager(): Locking frame [0]
  <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
- <- Pager(): Page[0] state is [INBOTH] NOT zeroing out vmRegions frame [0]
+ <- Pager(): Page[0] state is [UNUSED], zeroing out vmRegions frame[0]
  <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
  <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
- <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
+ <- Pager(): Fault Handled for pid[13]: frame[0] state[F_USED] sending to FaultMsg replyMbox[862]
+ <- p1_switch(): VM is initialized, switching from old[10] new[13]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[13]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[13]
+ <- p1_switch(): VM is initialized, switching from old[13] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[13]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[10] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[1] by new pid[12]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Unlocking frame [1]
+ <- p1_switch(): VM is initialized, switching from old[12] new[11]
+ <- p1_switch(): Unmapping page=[0] from frame[1] by old pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): Mapping page=[0] to frame[-1] by new pid[11]... S_result = [Invalid frame number]
+
+ <- FaultHandler(): Sending fault...pid=[11] offset=[0] to Pager
+ <- p1_switch(): VM is initialized, switching from old[11] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[-1] by old pid[11]... S_result = [Page not mapped]
+ <- Pager(): Fault Received...from pid[11] offset[0] | reply_mboxID[860] pager_buf[0] 
+ <- p1_switch(): VM is initialized, switching from old[10] new[13]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[13]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Unlocking frame [0]
+ <- p1_switch(): VM is initialized, switching from old[13] new[12]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[13]... S_result = [Everything hunky-dory]
+ <- p1_switch(): Mapping page=[0] to frame[1] by new pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[12] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[1] by old pid[12]... S_result = [Everything hunky-dory]
+ <- Pager(): Searching for frame... frame not found...
+ <- Pager(): Searching frame [1] state [UNLOCKED] reference bit = [0] dirty bit = [0]
+ <- Pager(): frame[1] found, stealing from pid[12] page[0] 
+ <- Pager(): Locking frame [1]
+ <- Pager(): Mapping temp pager frame=[1] access=[3] P_result = [Everything hunky-dory])
+ <- Pager(): Page[0] state is [INMEM] NOT zeroing out vmRegions frame [1]
+ <- Pager(): Setting frame[1] as clean, P_result = [Everything hunky-dory]
+ <- Pager(): Unmapping temp pager frame[1], p_result = [Everything hunky-dory]
+ <- Pager(): Fault Handled for pid[11]: frame[1] state[F_USED] sending to FaultMsg replyMbox[860]
  <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[0] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
+ <- p1_switch(): Mapping page=[0] to frame[1] by new pid[11]... S_result = [Everything hunky-dory]
  <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
  <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[0] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
- <- FaultHandler(): Unlocking frame [0]
-Child(11) writing to page 1
+ <- p1_switch(): Unmapping page=[0] from frame[1] by old pid[11]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[10] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[-1] by new pid[12]... S_result = [Invalid frame number]
 
- <- FaultHandler(): Sending fault...pid=[11] offset=[1] to Pager
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- Pager(): Fault Received...from pid[11] offset[1] | reply_mboxID[860] pager_buf[0] 
+ <- FaultHandler(): Sending fault...pid=[12] offset=[0] to Pager
+ <- p1_switch(): VM is initialized, switching from old[12] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[-1] by old pid[12]... S_result = [Page not mapped]
+ <- Pager(): Fault Received...from pid[12] offset[0] | reply_mboxID[861] pager_buf[0] 
+ <- p1_switch(): VM is initialized, switching from old[10] new[13]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[13]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[13] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[13]... S_result = [Everything hunky-dory]
+ <- Pager(): Searching for frame... frame not found...
+ <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [0]
+ <- Pager(): frame[0] found, stealing from pid[13] page[0] 
+ <- Pager(): Locking frame [0]
+ <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
+ <- Pager(): Page[0] state is [INMEM] NOT zeroing out vmRegions frame [0]
+ <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
+ <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
+ <- Pager(): Fault Handled for pid[12]: frame[0] state[F_USED] sending to FaultMsg replyMbox[861]
+ <- p1_switch(): VM is initialized, switching from old[10] new[11]
+ <- p1_switch(): Mapping page=[0] to frame[1] by new pid[11]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Unlocking frame [1]
+Child(11): after memcpy
+Child(11): strcmp first attempt worked!
+ <- p1_switch(): VM is initialized, switching from old[11] new[9]
+ <- p1_switch(): Unmapping page=[0] from frame[1] by old pid[11]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[9] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[12]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[12]
+ <- p1_switch(): VM is initialized, switching from old[12] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[10] new[13]
+ <- p1_switch(): Mapping page=[0] to frame[-1] by new pid[13]... S_result = [Invalid frame number]
+
+ <- FaultHandler(): Sending fault...pid=[13] offset=[0] to Pager
+ <- p1_switch(): VM is initialized, switching from old[13] new[10]
+ <- p1_switch(): Unmapping page=[0] from frame[-1] by old pid[13]... S_result = [Page not mapped]
+ <- Pager(): Fault Received...from pid[13] offset[0] | reply_mboxID[862] pager_buf[0] 
+ <- Pager(): Searching for frame... frame not found...
+ <- Pager(): Searching frame [1] state [UNLOCKED] reference bit = [1] dirty bit = [2]
+ <- Pager(): Setting frame[1] as unreferenced...
+ <- Pager(): Searching frame [0] state [LOCKED] reference bit = [0] dirty bit = [0]
+ <- Pager(): Searching frame [1] state [UNLOCKED] reference bit = [0] dirty bit = [2]
+ <- Pager(): frame[1] found, stealing from pid[11] page[0] 
+ <- Pager(): page[0] is dirty, notify previous process [11] its frame is being written to disk...
+ <- Pager(): Writing page[0] to Disk track=0 sector=0 numSectors=8
+ <- p1_switch(): VM is initialized, switching from old[10] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[11]
+ <- p1_switch(): VM is initialized, switching from old[11] new[9]
+ <- p1_switch(): VM is initialized, switching from old[9] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[12]... S_result = [Everything hunky-dory]
+ <- FaultHandler(): Unlocking frame [0]
+Child(12): after memcpy
+Child(12): strcmp first attempt worked!
+ <- p1_switch(): VM is initialized, switching from old[12] new[9]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[9] new[13]
+ <- p1_switch(): Mapping page=[0] to frame[-1] by new pid[13]... S_result = [Invalid frame number]
+ <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[13]
+ <- p1_switch(): VM is initialized, switching from old[13] new[11]
+ <- p1_switch(): Unmapping page=[0] from frame[-1] by old pid[13]... S_result = [Page not mapped]
+
+ <- FaultHandler(): Sending fault...pid=[11] offset=[0] to Pager
+ <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
+ <- p1_switch(): VM is initialized, switching from old[11] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[12] new[9]
+ <- p1_switch(): Unmapping page=[0] from frame[0] by old pid[12]... S_result = [Everything hunky-dory]
+ <- p1_switch(): VM is initialized, switching from old[9] new[12]
+ <- p1_switch(): Mapping page=[0] to frame[0] by new pid[12]... S_result = [Everything hunky-dory]
+Child(12): strcmp second attempt worked!
+Child(12): checking various vmStats
+Child(12): terminating
+
+ <- p1_quit(): Unmapping page=[0] from frame[0]
+ <- p1_switch(): VM is initialized, switching from old[0] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[5]
+ <- p1_switch(): VM is initialized, switching from old[5] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[5]
+ <- p1_switch(): VM is initialized, switching from old[5] new[1]
+ <- p1_switch(): VM is initialized, switching from old[1] new[7]
+ <- p1_switch(): VM is initialized, switching from old[7] new[10]
+ <- Pager(): Locking frame [1]
+ <- Pager(): Mapping temp pager frame=[1] access=[3] P_result = [Everything hunky-dory])
+ <- Pager(): Page[0] state is [INMEM] NOT zeroing out vmRegions frame [1]
+ <- Pager(): Setting frame[1] as clean, P_result = [Everything hunky-dory]
+ <- Pager(): Unmapping temp pager frame[1], p_result = [Everything hunky-dory]
+ <- Pager(): Fault Handled for pid[13]: frame[1] state[F_USED] sending to FaultMsg replyMbox[862]
+ <- Pager(): Fault Received...from pid[11] offset[0] | reply_mboxID[860] pager_buf[0] 
  <- Pager(): Searching for frame... frame not found...
  <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [1] dirty bit = [2]
  <- Pager(): Setting frame[0] as unreferenced...
+ <- Pager(): Searching frame [1] state [LOCKED] reference bit = [0] dirty bit = [0]
  <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [2]
- <- Pager(): frame[0] found, stealing from pid[11] page[0] 
- <- Pager(): page[0] is dirty, notify previous process [11] its frame is being written to disk...
- <- Pager(): Locking frame [0]
- <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
- <- Pager(): Frame [0] found is in disk...copy disk page to frame.
- <- Pager(): Page[1] state is [INDISK] NOT zeroing out vmRegions frame [0]
- <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
- <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
- <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- FaultHandler(): Unlocking frame [0]
-
- <- FaultHandler(): Sending fault...pid=[11] offset=[1] to Pager
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- Pager(): Fault Received...from pid[11] offset[1] | reply_mboxID[860] pager_buf[0] 
- <- Pager(): Searching for frame... frame not found...
- <- Pager(): Searching frame [0] state [UNLOCKED] reference bit = [0] dirty bit = [0]
- <- Pager(): frame[0] found, stealing from pid[11] page[1] 
- <- Pager(): Locking frame [0]
- <- Pager(): Mapping temp pager frame=[0] access=[3] P_result = [Everything hunky-dory])
- <- Pager(): Page[1] state is [INBOTH] NOT zeroing out vmRegions frame [0]
- <- Pager(): Setting frame[0] as clean, P_result = [Everything hunky-dory]
- <- Pager(): Unmapping temp pager frame[0], p_result = [Everything hunky-dory]
- <- Pager(): Fault Handled for pid[11]: frame[0] state[F_USED] sending to FaultMsg replyMbox[860]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[1] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
- <- FaultHandler(): Before Recv on FaultTable replyMbox by pid[11]
- <- p1_switch(): VM is initialized, switching from old[11] new[10]
- <- p1_switch(): Unmapping page=[1] from frame[0] by old pid[11]... S_result = [Everything hunky-dory]
- <- p1_switch(): VM is initialized, switching from old[10] new[11]
- <- p1_switch(): Mapping page=[1] to frame[0] by new pid[11]... S_result = [Everything hunky-dory]
- <- FaultHandler(): Unlocking frame [0]
+ <- Pager(): frame[0] found, stealing from pid[-1] page[-1] 
+ <- Pager(): page[-1] is dirty, notify previous process [-1] its frame is being written to disk...

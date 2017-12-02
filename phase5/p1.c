@@ -72,8 +72,9 @@ void p1_switch(int old, int new){
 		// Un Map old process
 		if (pagePtr != NULL){
 			for(i=0;i< temp->numPages;i++){
-				//map_result = USLOSS_MmuGetMap(TAG, i, &framePtr, &frameProtPtr); 
-				if(pagePtr->state == INMEM){  // Check if page is mapped, if so unmap it.
+				map_result = USLOSS_MmuGetMap(TAG, i, &framePtr, &frameProtPtr); 
+				if(map_result != USLOSS_MMU_ERR_NOMAP){ 
+				//if(pagePtr->state == INMEM){  // Check if page is mapped, if so unmap it.
 					map_result = USLOSS_MmuUnmap(TAG, i); //temp->pageTable[i].page
 					pDebug(1," <- p1_switch(): Unmapping page=[%d] from frame[%d] by old pid[%d]... S_result = [%s]\n",temp->pageTable[i].page,temp->pageTable[i].frame,old,get_r(map_result));
 				}
@@ -125,9 +126,10 @@ void p1_quit(int pid){
 			temp->pageTable[i].frame = -1;
 			
 			// clean frame tables frame
-			FrameTable[mapped_frame].state = UNUSED;
+			FrameTable[mapped_frame].state = F_UNUSED;
 			FrameTable[mapped_frame].page = -1;
 			FrameTable[mapped_frame].ownerPID = -1;
+			FrameTable[mapped_frame].isLocked = UNLOCKED;
 			vmStats.freeFrames++;
 		}
 		if(temp->pageTable[i].diskBlock > -1 && Disk.blocks[temp->pageTable[i].diskBlock] == D_INUSE){

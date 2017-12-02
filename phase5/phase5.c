@@ -49,6 +49,7 @@ char disk_results[2][10] = {"D_UNUSED","D_USED"};
 char frame_lock[2][10] = {"LOCKED" , "UNLOCKED"};
 int clockHand = 0;
 int clockMutex;
+int frameMutex;
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
@@ -249,6 +250,10 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
   
 	// Create clock semaphore for page replacement
 	 clockMutex = semcreateReal(1);
+	 
+	// Create frame mutex 
+	frameMutex = semcreateReal(frames);
+	
    /*
     * Fork the pagers.
     */
@@ -339,6 +344,9 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
 	// remove lock, or test 10 will fail
 	pDebug(1," <- FaultHandler(): Unlocking frame [%d]\n",reply_buff);
 	FrameTable[reply_buff].isLocked = UNLOCKED;
+	// Acquire frame mutex
+	semvReal(frameMutex);
+
 	//FrameTable[FaultTable[pid].frameFound].isLocked = UNLOCKED;
 	pDebug(2," <- FaultHandler(): end\n");
 } /* FaultHandler */
@@ -399,6 +407,9 @@ static int Pager(char *buf){
 		faultPage = &ProcTable5[(long)fm->pid].pageTable[faultOffset];
 		pDebug(1, " <- Pager(): Fault Received...from pid[%d] offset[%d] | reply_mboxID[%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
 		
+		// Acquire frame mutex
+		sempReal(frameMutex);
+		
 		// Find Frame
 		pDebug(1," <- Pager(): Searching for frame...");
 		for (frame=0;frame<vmStats.frames;frame++){
@@ -432,7 +443,7 @@ static int Pager(char *buf){
 				// If page is unreferenced, used it
 				}else if (FrameTable[clockHand].isLocked == UNLOCKED){
 					frame = clockHand;
-					pDebug(1," <- Pager(): frame[%d] found, stealing from pid[%d] page[%d] \n",frame,FrameTable[frame].ownerPID,FrameTable[frame].page);
+					pDebug(1," <- Pager(): frame[%d] found state=[%s], stealing from pid[%d] page[%d] \n",frame,get_r(FrameTable[frame].state),FrameTable[frame].ownerPID,FrameTable[frame].page);
 					PTE *oldProcPage = &ProcTable5[FrameTable[frame].ownerPID%MAXPROC].pageTable[FrameTable[frame].page];
 					isFrameReplaced = 1;
 					
@@ -448,7 +459,9 @@ static int Pager(char *buf){
 								map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 								memcpy(disk_buf,vmRegion /*+ frame*/,USLOSS_MmuPageSize());
 								map_result = USLOSS_MmuUnmap(TAG, 0);
-								diskWriteReal(1,i/2,(i%2)*USLOSS_MmuPageSize(),USLOSS_MmuPageSize(),disk_buf);
+								pDebug(1," <- Pager(): Writing page[%d] to Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,i/2,(i%2)*USLOSS_MmuPageSize(),Disk.numSects/2);
+								
+								diskWriteReal(1,i/2,(i%2)*USLOSS_MmuPageSize(),USLOSS_MmuPageSize(),disk_buf); //Disk.numSects/2
 								vmStats.pageOuts++;
 								vmStats.freeDiskBlocks--;
 								break;
