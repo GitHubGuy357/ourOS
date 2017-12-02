@@ -49,7 +49,10 @@ char disk_results[2][10] = {"D_UNUSED","D_USED"};
 char frame_lock[2][10] = {"LOCKED" , "UNLOCKED"};
 int clockHand = 0;
 int clockMutex;
+int frameLimiter;
 int frameMutex;
+int diskMutex;
+
 /*****************************************************
 *             ProtoTypes
 *****************************************************/
@@ -251,8 +254,14 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
 	// Create clock semaphore for page replacement
 	 clockMutex = semcreateReal(1);
 	 
-	// Create frame mutex 
-	frameMutex = semcreateReal(frames);
+	// Create frame limiter so that frames are not attempted to be assigned when all in use 
+	frameLimiter = semcreateReal(frames);
+	
+	// Create mutex for frame critical sections
+	frameMutex = semcreateReal(1);
+	
+	// Create mutex for frame critical sections
+	diskMutex = semcreateReal(1);
 	
    /*
     * Fork the pagers.
@@ -344,8 +353,9 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
 	// remove lock, or test 10 will fail
 	pDebug(1," <- FaultHandler(): Unlocking frame [%d]\n",reply_buff);
 	FrameTable[reply_buff].isLocked = UNLOCKED;
-	// Acquire frame mutex
-	semvReal(frameMutex);
+	
+	// Release frame mutex
+	semvReal(frameLimiter);
 
 	//FrameTable[FaultTable[pid].frameFound].isLocked = UNLOCKED;
 	pDebug(2," <- FaultHandler(): end\n");
@@ -394,7 +404,7 @@ static int Pager(char *buf){
     while(1) {
 		/* Wait for fault to occur (receive from mailbox) */
         /* Look for free frame */
-		pDebug(3," <- Pager(): Before Block awaiting fault...\n");
+		pDebug(1," <- Pager(): Before Block awaiting fault...\n");
 		MboxReceive(fault_mbox,recv_buff,sizeof(FaultMsg));
 		if (isZapped())
 			break; 
@@ -408,13 +418,15 @@ static int Pager(char *buf){
 		pDebug(1, " <- Pager(): Fault Received...from pid[%d] offset[%d] | reply_mboxID[%d] pager_buf[%s] \n",fm->pid,faultOffset, FaultTable[fm->pid%MAXPROC].replyMbox,buf);
 		
 		// Acquire frame mutex
-		sempReal(frameMutex);
+		sempReal(frameLimiter);
 		pDebug(1, " <- Pager(): Frame mutex waking up...\n");
 		if (isZapped())
 			break; 
 		
 		// Find Frame
-		pDebug(1," <- Pager(): Searching for frame...");
+		pDebug(1," <- Pager(): Searching for frame...\n");
+		
+		sempReal(frameMutex); // mutex for critical section
 		for (frame=0;frame<vmStats.frames;frame++){
 			if(FrameTable[frame].state == F_UNUSED && FrameTable[frame].isLocked == UNLOCKED){
 				pDebug(1," frame [%d] found!\n",frame);
@@ -424,7 +436,8 @@ static int Pager(char *buf){
 				break;
 			}
 		}
-		
+		semvReal(frameMutex); // mutex for critical section
+		pDebug(1," <- Pager(): After frameMutex...\n");
 		/* If there isn't one then use clock algorithm to */
         /* replace a page (perhaps write to disk) */
 		isFrameReplaced = 0;
@@ -434,7 +447,9 @@ static int Pager(char *buf){
 			pDebug(1," frame not found...\n");
 
 			while (!isFrameReplaced){
+				pDebug(1," before clock mutex...\n");
 				sempReal(clockMutex);
+				pDebug(1," after clock mutex...\n");
 				map_result = USLOSS_MmuGetAccess(clockHand, &accessBit); // get access bits
 				pDebug(1," <- Pager(): Searching frame [%d] state [%s] reference bit = [%d] dirty bit = [%d]\n",clockHand,get_r(FrameTable[clockHand].isLocked), accessBit & USLOSS_MMU_REF, accessBit & USLOSS_MMU_DIRTY);
 				
@@ -454,6 +469,7 @@ static int Pager(char *buf){
 					
 					// If this frame is dirty, write to disk
 					if(accessBit & USLOSS_MMU_DIRTY){
+						sempReal(diskMutex); // mutex for critical section
 						pDebug(1," <- Pager(): page[%d] is dirty, notify previous process [%d] its frame is being written to disk...\n",FrameTable[frame].page, FrameTable[frame].ownerPID);
 						for(i=0;i<Disk.blockCount;i++){
 							if(Disk.blocks[i] == D_UNUSED){
@@ -466,18 +482,20 @@ static int Pager(char *buf){
 								map_result = USLOSS_MmuUnmap(TAG, 0);
 								pDebug(1," <- Pager(): Writing page[%d] to Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2);
 								
-								diskWriteReal(1,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2,disk_buf); //Disk.numSects/2
+								diskWriteReal(1,i/2,(i%2)*Disk.numSects/2,Disk.numSects/2,disk_buf);
 								vmStats.pageOuts++;
 								vmStats.freeDiskBlocks--;
 								break;
 							}	
 						}
-						
+						semvReal(diskMutex); // mutex for critical section
+					}else{
+						pDebug(1," <- Pager(): page[%d] is NOT dirty...\n",FrameTable[frame].page, FrameTable[frame].ownerPID);
 					}
 
 					oldProcPage->frame = -1;
 					oldProcPage->page = -1;
-				    //	oldProcPage->state = 505; //TODO: What should this state me?
+				  //  oldProcPage->state = 505; //TODO: What should this state me?
 					
 				}
 				
@@ -500,8 +518,12 @@ static int Pager(char *buf){
 			pDebug(1," <- Pager(): Reading page[%d] from Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,faultPage->diskBlock/2,(faultPage->diskBlock%2)*Disk.numSects/2,Disk.numSects/2);
 			char disk_buf[USLOSS_MmuPageSize()];
 			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*Disk.numSects/2, Disk.numSects/2, disk_buf);
+			pDebug(1," <- Pager(): before memcpy INDISK\n");
+			map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
+			pDebug(1," <- Pager(): after memcpy INDISK mapresult = %s\n",get_r(map_result));
 			memcpy(vmRegion,disk_buf,USLOSS_MmuPageSize());
 			
+
 			Disk.blocks[faultPage->diskBlock] = D_UNUSED;
 			vmStats.freeDiskBlocks++;
 			vmStats.pageIns++;
@@ -534,7 +556,7 @@ static int Pager(char *buf){
 		FrameTable[frame].page = faultOffset;
 		FrameTable[frame].ownerPID = fm->pid;
 
-		pDebug(1," <- Pager(): Fault Handled for pid[%d]: frame[%d] state[%s] sending to FaultMsg replyMbox[%d]\n",fm->pid,frame,get_r(FrameTable[frame].state),fm->replyMbox);
+		pDebug(1," <- Pager(): Fault Handled for pid[%d]: page[%d] frame[%d] state[%s] sending to FaultMsg replyMbox[%d]\n",fm->pid,FrameTable[frame].page,frame,get_r(FrameTable[frame].state),fm->replyMbox);
 		
 		//PrintStats();
 		/* Unblock waiting (faulting) process */

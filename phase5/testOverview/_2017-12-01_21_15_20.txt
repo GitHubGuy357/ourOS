@@ -1,0 +1,22 @@
+
+Results:
+
+ Matching Count: 3
+   simple1 ----MATCH----
+   simple2 ----MATCH----
+   simple3 ----MATCH----
+
+ Mismatch Count: 5
+   simple10 ----NOT MATCH----
+   simple4 ----NOT MATCH----
+   simple7 ----NOT MATCH----
+   simple8 ----NOT MATCH----
+   simple9 ----NOT MATCH----
+
+ Missing Count: 2
+   simple5.txt
+   simple6.txt
+
+ Skipped: 0
+  
+
