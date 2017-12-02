@@ -130,6 +130,9 @@ void p1_quit(int pid){
 			FrameTable[mapped_frame].page = -1;
 			FrameTable[mapped_frame].ownerPID = -1;
 			FrameTable[mapped_frame].isLocked = UNLOCKED;
+			
+			// If 3 process runs and use 2 frames, when they quit, this will be 3 free frames, and this corrects that
+			if(vmStats.freeFrames < vmStats.frames)
 			vmStats.freeFrames++;
 		}
 		if(temp->pageTable[i].diskBlock > -1 && Disk.blocks[temp->pageTable[i].diskBlock] == D_INUSE){

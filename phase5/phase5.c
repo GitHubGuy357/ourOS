@@ -218,7 +218,7 @@ void *vmInitReal(int mappings, int pages, int frames, int pagers){
     * Create the fault mailbox.
     */
 
-	fault_mbox = MboxCreate(pagers,MAX_MESSAGE);
+	fault_mbox = MboxCreate(0,MAX_MESSAGE); //pagers
 	pDebug(2," <- vmInitReal(): Created fault_mbox [%d] with %d pagers\n",fault_mbox,pagers);
 	
 	// Create All 50 possible processes
@@ -419,12 +419,11 @@ static int Pager(char *buf){
 		
 		// Acquire frame mutex
 		sempReal(frameLimiter);
-		pDebug(1, " <- Pager(): Frame mutex waking up...\n");
 		if (isZapped())
 			break; 
 		
 		// Find Frame
-		pDebug(1," <- Pager(): Searching for frame...\n");
+		pDebug(1," <- Pager(): Searching for frame...");
 		
 		sempReal(frameMutex); // mutex for critical section
 		for (frame=0;frame<vmStats.frames;frame++){
@@ -437,7 +436,6 @@ static int Pager(char *buf){
 			}
 		}
 		semvReal(frameMutex); // mutex for critical section
-		pDebug(1," <- Pager(): After frameMutex...\n");
 		/* If there isn't one then use clock algorithm to */
         /* replace a page (perhaps write to disk) */
 		isFrameReplaced = 0;
@@ -447,11 +445,9 @@ static int Pager(char *buf){
 			pDebug(1," frame not found...\n");
 
 			while (!isFrameReplaced){
-				pDebug(1," before clock mutex...\n");
 				sempReal(clockMutex);
-				pDebug(1," after clock mutex...\n");
 				map_result = USLOSS_MmuGetAccess(clockHand, &accessBit); // get access bits
-				pDebug(1," <- Pager(): Searching frame [%d] state [%s] reference bit = [%d] dirty bit = [%d]\n",clockHand,get_r(FrameTable[clockHand].isLocked), accessBit & USLOSS_MMU_REF, accessBit & USLOSS_MMU_DIRTY);
+				pDebug(2," <- Pager(): Searching frame [%d] state [%s] reference bit = [%d] dirty bit = [%d]\n",clockHand,get_r(FrameTable[clockHand].isLocked), accessBit & USLOSS_MMU_REF, accessBit & USLOSS_MMU_DIRTY);
 				
 				// Page is referenced, set page as unreferenced
 				if (accessBit & USLOSS_MMU_REF){ // if USLOSS_MMU_REF is set the page has been referenced. 
@@ -491,11 +487,12 @@ static int Pager(char *buf){
 						semvReal(diskMutex); // mutex for critical section
 					}else{
 						pDebug(1," <- Pager(): page[%d] is NOT dirty...\n",FrameTable[frame].page, FrameTable[frame].ownerPID);
+						oldProcPage->frame = -1;
+				        oldProcPage->state = 505; //TODO: What should this state me?
 					}
 
-					oldProcPage->frame = -1;
-					oldProcPage->page = -1;
-				  //  oldProcPage->state = 505; //TODO: What should this state me?
+		
+
 					
 				}
 				
@@ -509,21 +506,18 @@ static int Pager(char *buf){
 		FrameTable[frame].isLocked = LOCKED;
 
 		// Temp pager mapping to MMU region so we can memset to 0 OR write frame from disk to vmRegion
-		map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
-		pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
-		
+	
 		/* Load page into frame from disk, if necessary */
 		if(faultPage->state == INDISK){
 			pDebug(1," <- Pager(): Page [%d] found is in disk...copy disk page to frame.\n",frame);
 			pDebug(1," <- Pager(): Reading page[%d] from Disk track=%d sector=%d numSectors=%d\n",FrameTable[frame].page,faultPage->diskBlock/2,(faultPage->diskBlock%2)*Disk.numSects/2,Disk.numSects/2);
 			char disk_buf[USLOSS_MmuPageSize()];
 			diskReadReal (1, faultPage->diskBlock/2, (faultPage->diskBlock%2)*Disk.numSects/2, Disk.numSects/2, disk_buf);
-			pDebug(1," <- Pager(): before memcpy INDISK\n");
+			pDebug(2," <- Pager(): before memcpy INDISK\n");
+			pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
 			map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
-			pDebug(1," <- Pager(): after memcpy INDISK mapresult = %s\n",get_r(map_result));
 			memcpy(vmRegion,disk_buf,USLOSS_MmuPageSize());
-			
-
+			map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
 			Disk.blocks[faultPage->diskBlock] = D_UNUSED;
 			vmStats.freeDiskBlocks++;
 			vmStats.pageIns++;
@@ -533,7 +527,12 @@ static int Pager(char *buf){
 		// If the state of the page is inmem or indisk dont write over!
 		if(faultPage->state == UNUSED){
 			pDebug(1, " <- Pager(): Page[%d] state is [%s], zeroing out vmRegions frame[%d]\n",faultOffset,get_r(faultPage->state),frame);
+			pDebug(1," <- Pager(): Mapping temp pager frame=[%d] access=[%d] P_result = [%s])\n",frame,USLOSS_MMU_PROT_RW,get_r(map_result));
+			map_result = USLOSS_MmuMap(TAG, 0, frame, USLOSS_MMU_PROT_RW);
 			memset(vmRegion, 0, USLOSS_MmuPageSize()); //+ (FrameTable[frame].page*USLOSS_MmuPageSize()
+			// Temp pager mapping un-map to MMU
+			pDebug(1," <- Pager(): Unmapping temp pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
+			map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
 			vmStats.new++;
 		}else
 			pDebug(1, " <- Pager(): Page[%d] state is [%s] NOT zeroing out vmRegions frame [%d]\n",faultOffset,get_r(faultPage->state),frame);
@@ -542,9 +541,8 @@ static int Pager(char *buf){
 		map_result = USLOSS_MmuSetAccess(frame, 0); 
 		pDebug(1," <- Pager(): Setting frame[%d] as clean, P_result = [%s]\n",frame,get_r(map_result));
 		
-		// Temp pager mapping un-map to MMU
-		map_result = USLOSS_MmuUnmap(TAG, 0); // unmap page
-		pDebug(1," <- Pager(): Unmapping temp pager frame[%d], p_result = [%s]\n",frame,get_r(map_result));
+
+	
 		
 		// Update page, if page is in disk, it is in mem and disk now, otherwise just in mem
 		faultPage->frame = frame;

@@ -1,0 +1,245 @@
+start5(): Running:    simple6
+start5(): Pagers:     1
+          Mappings:   7
+          Pages:      7
+          Frames:     6
+          Children:   1
+          Iterations: 10
+          Priority:   5
+
+Child(11): starting
+
+Child(11): iteration 0
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       52
+faults:         7
+new:            7
+pageIns:        0
+pageOuts:       1
+replaced:       0
+before.faults=  0 PAGES = 7
+
+Child(11): iteration 1
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       369
+faults:         14
+new:            7
+pageIns:        7
+pageOuts:       8
+replaced:       0
+before.faults=  7 PAGES = 7
+
+Child(11): iteration 2
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       686
+faults:         21
+new:            7
+pageIns:        14
+pageOuts:       15
+replaced:       0
+before.faults=  14 PAGES = 7
+
+Child(11): iteration 3
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       1005
+faults:         28
+new:            7
+pageIns:        21
+pageOuts:       22
+replaced:       0
+before.faults=  21 PAGES = 7
+
+Child(11): iteration 4
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       1322
+faults:         35
+new:            7
+pageIns:        28
+pageOuts:       29
+replaced:       0
+before.faults=  28 PAGES = 7
+
+Child(11): iteration 5
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       1641
+faults:         42
+new:            7
+pageIns:        35
+pageOuts:       36
+replaced:       0
+before.faults=  35 PAGES = 7
+
+Child(11): iteration 6
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       1958
+faults:         49
+new:            7
+pageIns:        42
+pageOuts:       43
+replaced:       0
+before.faults=  42 PAGES = 7
+
+Child(11): iteration 7
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       2275
+faults:         56
+new:            7
+pageIns:        49
+pageOuts:       50
+replaced:       0
+before.faults=  49 PAGES = 7
+
+Child(11): iteration 8
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       2594
+faults:         63
+new:            7
+pageIns:        56
+pageOuts:       57
+replaced:       0
+before.faults=  56 PAGES = 7
+
+Child(11): iteration 9
+Child(11): writing to page 0
+Child(11): writing to page 1
+Child(11): writing to page 2
+Child(11): writing to page 3
+Child(11): writing to page 4
+Child(11): writing to page 5
+Child(11): writing to page 6
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     0
+freeDiskBlocks: 63
+switches:       2911
+faults:         70
+new:            7
+pageIns:        63
+pageOuts:       64
+replaced:       0
+before.faults=  63 PAGES = 7
+
+start5(): done
+VmStats
+pages:          7
+frames:         6
+diskBlocks:     64
+freeFrames:     6
+freeDiskBlocks: 64
+switches:       2914
+faults:         70
+new:            7
+pageIns:        63
+pageOuts:       64
+replaced:       0
+All processes completed.
