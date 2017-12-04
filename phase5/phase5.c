@@ -1,9 +1,19 @@
-/*
- * skeleton.c
- *
- * This is a skeleton for phase5 of the programming assignment. It
- * doesn't do much -- it is just intended to get you started.
- */
+/* ------------------------------------------------------------------------
+ phase5.c
+
+ University of Arizona
+ Computer Science 452
+ 
+ Group: James Rodgers, Ben Shinohara, and Adam Shinohara
+
+ This code is used to model implementing a virtual memory (VM) system that supports 
+ demand paging. The USLOSS MMU is used to configure a region of virtual memory whose 
+ contents are process-specific. The basic idea was to use the MMU to create a 
+ single-level page table, so that each process had its own page table for the vm region
+ and will therefore have its own view of what the vm region contains.
+
+
+ ------------------------------------------------------------------------ */
 
 
 #include <usyscall.h>
@@ -87,6 +97,7 @@ void printPages(PTE *pageTable);
  *----------------------------------------------------------------------
  */
 int start4(char *arg) {
+	//local vaiables that are used
     int pid;
     int result;
     int status;
@@ -360,7 +371,6 @@ void FaultHandler(int type /* MMU_INT */, void * arg  /* Offset within VM region
 	//FrameTable[FaultTable[pid].frameFound].isLocked = UNLOCKED;
 	pDebug(2," <- FaultHandler(): end\n");
 } /* FaultHandler */
-
 
 /*
  *----------------------------------------------------------------------
@@ -444,6 +454,9 @@ static int Pager(char *buf){
 			int accessBit;
 			pDebug(1," frame not found...\n");
 
+			//loop through until a page that is going to be unrferenced is found
+			//during this process, the dirty bit is set appropriately and all dirty
+			//frames are written to the disk
 			while (!isFrameReplaced){
 				sempReal(clockMutex);
 				map_result = USLOSS_MmuGetAccess(clockHand, &accessBit); // get access bits
@@ -467,6 +480,9 @@ static int Pager(char *buf){
 					if(accessBit & USLOSS_MMU_DIRTY){
 						sempReal(diskMutex); // mutex for critical section
 						pDebug(1," <- Pager(): page[%d] is dirty, notify previous process [%d] its frame is being written to disk...\n",FrameTable[frame].page, FrameTable[frame].ownerPID);
+						
+						//loop through all the necessary processes and write those
+						//that are dirty to the disk
 						for(i=0;i<Disk.blockCount;i++){
 							if(Disk.blocks[i] == D_UNUSED){
 								Disk.blocks[i] = D_INUSE;
